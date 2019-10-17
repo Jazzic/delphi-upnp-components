@@ -171,7 +171,8 @@ const
   _allowedValueRange           = 'allowedValueRange';
   _allowedValueList            = 'allowedValueList';
   _eproperty                   = 'e:property';
-  _epropertysetXmlNS           = 'xmlns:e="urn:schemas-upnp-org:event-1-0"';
+  // _epropertysetXmlNS           = 'xmlns:e="urn:schemas-upnp-org:event-1-0"';
+  _epropertysetXmlNSValue      = 'e="urn:schemas-upnp-org:event-1-0"';
   _epropertyset                = 'e:propertyset';
   _deviceType                  = 'deviceType';
   _friendlyName                = 'friendlyName';
@@ -190,12 +191,16 @@ const
   _SCPDURL                     = 'SCPDURL';
   _controlURL                  = 'controlURL';
   _eventSubURL                 = 'eventSubURL';
-  _scpdXmlNS                   = 'xmlns="urn:schemas-upnp-org:service-1-0"';
+  _attrXmlNS                   = 'xmlns';
+  _scpdXmlNSValue              = 'urn:schemas-upnp-org:service-1-0';
   _major                       = 'major';
   _minor                       = 'minor';
   _scpd                        = 'scpd';
-  _sEnvelopeAttrs              = 'xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" ' +
-                                 'soap:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"';
+  _attrSOAP                    = 'soap';
+//  _sEnvelopeAttrs              = 'xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" ' +
+//                                 'soap:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"';
+  _sEnvelopeAttrsXmlNSValue    = 'soap="http://schemas.xmlsoap.org/soap/envelope/"';
+  _sEnvelopeAttrsSOAPValue     = 'encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"';
   _sEnvelope                   = 'soap:Envelope';
   _sBody                       = 'soap:Body';
   _sFault                      = 'soap:Fault';
@@ -205,19 +210,23 @@ const
   _faultstring                 = 'faultstring';
   _UPnPError                   = 'UPnPError';
   _detail                      = 'detail';
-  _UPnPErrorXmlNS              = 'xmlns="urn:schemas-upnp-org:control-1-0"';
+  // _UPnPErrorXmlNS              = 'xmlns="urn:schemas-upnp-org:control-1-0"';
+  _UPnPErrorXmlNSValue         = '"urn:schemas-upnp-org:control-1-0"';
   _errorCode                   = 'errorCode';
   _errorDescription            = 'errorDescription';
   _uResponseFmtXmlNS           = 'u:%sResponse xmlns:u="%s"';
   _uResponseFmt                = 'u:%sResponse';
-  _rootXmlNS                   = 'xmlns="urn:schemas-upnp-org:device-1-0"';
+  // _rootXmlNS                   = 'xmlns="urn:schemas-upnp-org:device-1-0"';
+  _rootXmlNSValue              = '"urn:schemas-upnp-org:device-1-0"';
   _root                        = 'root';
   _URLBase                     = 'URLBase';
   _name                        = 'name';
   _relatedStateVariable        = 'relatedStateVariable';
   _direction                   = 'direction';
   _retval                      = 'retval';
-  _stateVariableAttr           = 'sendEvents="%s"';
+  // _stateVariableAttr           = 'sendEvents="%s"';
+  _stateVariableAttr           = 'sendEvents';
+  _stateVariableAttrValue      = '"%s"';
   _dataType                    = 'dataType';
   _defaultValue                = 'defaultValue';
   _minimum                     = 'minimum';
@@ -225,7 +234,8 @@ const
   _step                        = 'step';
   _allowedValue                = 'allowedValue';
   _stateVariable               = 'stateVariable';
-  _uQSV_XmlNS                  = 'xmlns:u="urn:schemas-upnp-org:control-1-0"';
+  // _uQSV_XmlNS                  = 'xmlns:u="urn:schemas-upnp-org:control-1-0"';
+  _uQSV_XmlNSValue             = 'u="urn:schemas-upnp-org:control-1-0"';
   _uQSV                        = 'u:QueryStateVariableResponse';
   _return                      = 'return';
   _varName                     = 'varName';
@@ -248,15 +258,20 @@ const
   _SecurityInfo                = 'SecurityInfo';
   _id                          = 'Id';
   _DevSecNSbase                = 'urn:schemas-upnp-org:service:DeviceSecurity:1';
-  _sBodyAttrSigned             = 'xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:us="' +
+//  _sBodyAttrSigned             = 'xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:us="' +
+//                                 _devSecNSbase + '" us:' + _Id + '="Body"';
+  _sBodyAttrSignedValue        = 'soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:us="' +
                                  _devSecNSbase + '" us:' + _Id + '="Body"';
   _permission                  = 'Permission';
   _ACLentry                    = 'ACLEntry';
   _PermsFmt                    = '<mfgr:%s/>';
   _fullDescriptionURL          = 'FullDescriptionURL';
   _shortDescription            = 'ShortDescription';
-  _DevSecAttrs                 = 'xmlns="' + _devSecNSbase + '"';
-  _FreshnessAttrs              = 'xmlns="' + _devSecNSbase + '" xmlns:us="' +
+//  _DevSecAttrs                 = 'xmlns="' + _devSecNSbase + '"';
+  _DevSecAttrsValue            = '"' + _devSecNSbase + '"';
+//  _FreshnessAttrs              = 'xmlns="' + _devSecNSbase + '" xmlns:us="' +
+//                                 _devSecNSbase + '" us:' + _Id + '="Freshness"';
+  _FreshnessAttrsValue         = '"' + _devSecNSbase + '" xmlns:us="' +
                                  _devSecNSbase + '" us:' + _Id + '="Freshness"';
 
 
@@ -272,7 +287,9 @@ const
   // Other useful strings for UPnP
   _majorVersion                = '1';
   _minorVersion                = '0';
-  XML_VerString                = '?xml version="1.0"?';
+  XML_VerString                = '?xml version="1.0" encoding="utf-8" ?';
+  XMLDoc_Version               = '1.0';
+  XMLDoc_Encoding              = 'utf-8';
 
   crlf                         = #13#10;
   empty                        = '';

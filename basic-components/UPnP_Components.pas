@@ -144,7 +144,10 @@ uses
   SysUtils,
   UPnP_Globals,
   UPnP_IndyExtensions,
-  UPnP_XmlStreamer, Windows;
+  Windows,
+  IdGlobal,
+  XMLDoc,
+  XMLIntf;
 
 type
   {
@@ -356,7 +359,7 @@ type
     fPicture: TPicture;
     procedure SetPicture(aPicture: TPicture);
     function ServeImage(Response: TUPnP_HTTPServerResponseWrapper): boolean;
-    procedure SaveToXML(DescriptionXML: TUPnP_XMLStream); virtual;
+    procedure SaveToXML(DescriptionXML: IXMLNode); virtual;
     function ProcessHTTPRequest(Request: TUPnP_HTTPServerRequestWrapper;
       Response: TUPnP_HTTPServerResponseWrapper): boolean; virtual;
     procedure SetIconName(aName: string);
@@ -411,7 +414,7 @@ type
     procedure SetIcons(Value: TUPnP_IconCollection);
     procedure SetServices(Value: TUPnP_ServiceCollection);
     procedure SetPresentationHTMLText(Value: TStringList);
-    procedure SaveToXML(DescriptionXML: TUPnP_XMLStream); virtual;
+    procedure SaveToXML(DescriptionXML: IXMLNode); virtual;
     procedure CollectAliveMessages(aList: TUPnP_NotificationCollection); virtual;
     procedure CollectByeByeMessages(aList: TUPnP_NotificationCollection); virtual;
     procedure CollectMSearchResponses(Request: TUPnP_MSearchRequest;
@@ -532,7 +535,7 @@ type
     procedure Show(Sender: TObject);
     procedure CloseQuery(Sender: TObject; var CanClose: boolean);
     procedure InitSockets;
-    procedure SaveToXML(DescriptionXML: TUPnP_XMLStream); override;
+    procedure SaveToXML(DescriptionXML: IXMLNode); override;
     procedure CollectMSearchResponses(Request: TUPnP_MSearchRequest;
       aList: TUPnP_NotificationCollection); override;
     function ProcessDescriptionGet(Request: TUPnP_HTTPServerRequestWrapper;
@@ -540,7 +543,7 @@ type
     function GetDescriptionURL: string; override;
     procedure DispatchHTTPRequest(aRequestInfo: TUPnP_IdHTTPRequestInfo;
       aResponseInfo: TUPnP_IdHTTPResponseInfo);
-    procedure DispatchUDPRequest(aData: TStream; aBinding: TUPnP_IdSocketHandle);
+    procedure DispatchUDPRequest(aData: TIdBytes; aBinding: TUPnP_IdSocketHandle);
     procedure Connect; override;
     procedure Disconnect; override;
     procedure OnHeartBeat(Sender: TObject); override;
@@ -636,8 +639,8 @@ type
     procedure SetActions(Value: TUPnP_ActionCollection);
     procedure SetStateVariables(Value: TUPnP_StateVariableCollection);
     function GetUDN: string;
-    procedure SaveToXMLShort(ShortXMLDescription: TUPnP_XMLStream); virtual;
-    procedure SaveToXML(DescriptionXML: TUPnP_XMLStream); virtual;
+    procedure SaveToXMLShort(ShortXMLDescription: IXMLNode); virtual;
+    procedure SaveToXML(DescriptionXML: IXMLNode); virtual;
     procedure CollectAliveMessages(aList: TUPnP_NotificationCollection); virtual;
     procedure CollectByeByeMessages(aList: TUPnP_NotificationCollection); virtual;
     procedure CollectMSearchResponses(Request: TUPnP_MSearchRequest;
@@ -713,9 +716,9 @@ type
   TUPnP_DeviceSecurityBase = class(TUPnP_CustomService)
   protected
     function CheckDsigAuthorisation(aCaller: TUPnP_Component;
-      aRequest: TUPnP_XMLStream): TUPnP_AuthorisationResult; virtual; abstract;
-    procedure Sign(aCaller: TUPnP_Component; aBody: TUPnP_XMLStream;
-      out aSecurityInfo: TUPnP_XMLStream); virtual; abstract;
+      aRequest: IXMLNode): TUPnP_AuthorisationResult; virtual; abstract;
+    procedure Sign(aCaller: TUPnP_Component; aBody: IXMLNode;
+      aSecurityInfo: IXMLNode); virtual; abstract;
   end;
 
   {
@@ -729,7 +732,7 @@ type
     frelatedStateVariable: TUPnP_StateVariable;
     fValue: string;
     fDontUpdateRSV: boolean;
-    procedure SaveToXML(DescriptionXML: TUPnP_XMLStream); virtual;
+    procedure SaveToXML(DescriptionXML: IXMLNode); virtual;
     function GetDisplayName: string; override;
     procedure SetName(const NewName: TComponentName); override;
     procedure DoFixups(aRoot: TUPnP_RootDevice; aServiceList: TStringList); override;
@@ -774,7 +777,7 @@ type
     procedure syncActionExecute;
     procedure SetArguments(Value: TUPnP_ArgumentCollection);
     procedure SetSecurityPermissions(Value: TUPnP_SecurityPermissionCollection);
-    procedure SaveToXML(DescriptionXML: TUPnP_XMLStream); virtual;
+    procedure SaveToXML(DescriptionXML: IXMLNode); virtual;
     function ProcessSOAPAction(Request: TUPnP_HTTPServerRequestWrapper;
       Response: TUPnP_HTTPServerResponseWrapper): boolean; virtual;
     function GetDisplayName: string; override;
@@ -824,7 +827,7 @@ type
     fDevSec: TUPnP_DeviceSecurityBase;
     fSignResponse: boolean;
     fContainsXML: boolean;
-    procedure SaveToXML(DescriptionXML: TUPnP_XMLStream); virtual;
+    procedure SaveToXML(DescriptionXML: IXMLNode); virtual;
     procedure SetDefaultValue(aValue: string);
     procedure SetValue(aValue: string);
     function GetValue: string;
@@ -832,7 +835,7 @@ type
     function GetEncodedValue: string;
     function GetDefaultValue: string;
     procedure SetAllowedStrings(aStrings: TStringList);
-    procedure SaveEventToXML(EventXML: TUPnP_XMLStream); virtual;
+    procedure SaveEventToXML(EventXML: IXMLNode); virtual;
     function ProcessSOAPAction(Request: TUPnP_HTTPServerRequestWrapper;
       Response: TUPnP_HTTPServerResponseWrapper): boolean; virtual;
     function GetDisplayName: string; override;
@@ -895,7 +898,7 @@ type
     function GetPropertyValue(anIndex: cardinal): string; override;
   public
     constructor Create(AOwner: TComponent); override;
-    procedure SaveToXML(aBuffer: TUPnP_XMLStream); virtual;
+    procedure SaveToXML(aBuffer: IXMLNode); virtual;
   published
     property UIName: string Read fUIName Write fUIName;
     property ACLentryName: string Read fACLentryName Write fACLentryName;
@@ -1939,55 +1942,47 @@ begin
   fDescriptionURL := '/' + fModelName + _descriptionPath;
 end;
 
-procedure TUPnP_CustomDevice.SaveToXML(DescriptionXML: TUPnP_XMLStream);
+procedure TUPnP_CustomDevice.SaveToXML(DescriptionXML: IXMLNode);
 {
   Writes the object's self description XML
   Status: FULLY TESTED
 }
 var
   i: integer;
+  node: IXMLNode;
 begin
   // describe the device's own parameters
-  with DescriptionXML do
+  with DescriptionXML.AddChild(_device) do
   begin
-    WriteTagStart(_device);
-    WriteTagAndValue(_deviceType, fDeviceTypeExpanded);
-    WriteTagAndValue(_friendlyName, ffriendlyName);
-    WriteTagAndValue(_manufacturer, fmanufacturer);
-    WriteTagAndValue(_manufacturerURL, fmanufacturerURL);
-    WriteTagAndValue(_modelDescription, fmodelDescription);
-    WriteTagAndValue(_modelName, fmodelName);
-    WriteTagAndValue(_modelNumber, fmodelNumber);
-    WriteTagAndValue(_modelURL, fmodelURL);
-    WriteTagAndValue(_serialNumber, fserialNumber);
-    WriteTagAndValue(_UDN, UUIDStr + fUDN);
-    WriteTagAndValue(_UPC, fUPC);
+    AddChild(_deviceType).Text := fDeviceTypeExpanded;
+    AddChild(_friendlyName).Text := ffriendlyName;
+    AddChild(_manufacturer).Text := fmanufacturer;
+    AddChild(_manufacturerURL).Text := fmanufacturerURL;
+    AddChild(_modelDescription).Text := fmodelDescription;
+    AddChild(_modelName).Text := fmodelName;
+    AddChild(_modelNumber).Text := fmodelNumber;
+    AddChild(_modelURL).Text := fmodelURL;
+    AddChild(_serialNumber).Text := fserialNumber;
+    AddChild(_UDN).Text := UUIDStr + fUDN;
+    AddChild(_UPC).Text := fUPC;
 
     // ask the embedded icons (if any) to describe themselves
     if ficons.Count > 0 then
     begin
-      WriteTagStart(_iconList);
-      try
-        for i := 0 to pred(ficons.Count) do
-        begin
-          fIcons[i].SaveToXML(DescriptionXML);
-        end;
-      finally
-        WriteTagEnd(_iconList);
+      node := AddChild(_iconList);
+      for i := 0 to pred(ficons.Count) do
+      begin
+        fIcons[i].SaveToXML(node);
       end;
     end;
 
     // ask the embedded services (if any) to describe themselves
     if fservices.Count > 0 then
     begin
-      WriteTagStart(_serviceList);
-      try
-        for i := 0 to pred(fservices.Count) do
-        begin
-          fServices[i].SaveToXMLShort(DescriptionXML);
-        end;
-      finally
-        WriteTagEnd(_serviceList);
+      node := AddChild(_serviceList);
+      for i := 0 to pred(fservices.Count) do
+      begin
+        fServices[i].SaveToXMLShort(node);
       end;
     end;
 
@@ -1995,20 +1990,15 @@ begin
     // note that this could be called "recursively" for nested devices...
     if fdevices.Count > 0 then
     begin
-      WriteTagStart(_deviceList);
-      try
-        for i := 0 to pred(fdevices.Count) do
-        begin
-          fDevices[i].SaveToXML(DescriptionXML);
-        end;
-      finally
-        WriteTagEnd(_deviceList);
+      node := AddChild(_deviceList);
+      for i := 0 to pred(fdevices.Count) do
+      begin
+        fDevices[i].SaveToXML(node);
       end;
     end;
 
     // describe the "footer"
-    WriteTagAndValue(_presentationURL, fpresentationURL);
-    WriteTagEnd(_device);
+    AddChild(_presentationURL).Text := fpresentationURL;
   end;
 end;
 
@@ -2065,14 +2055,14 @@ begin
     doc := Request.Request.Document;
 
     // check if it is a call to our description URL and then handle it
-    if AnsiSameText(doc, fDescriptionURL) and
+    if SameText(doc, fDescriptionURL) and
       ProcessDescriptionGet(Request, Response) then
     begin
       exit;
     end;
 
     // check if it is a call for our Presentation URL and then handle it
-    if AnsiSameText(doc, fPresentationURL) and
+    if SameText(doc, fPresentationURL) and
       ProcessPresentationGet(Request, Response) then
     begin
       exit;
@@ -2665,7 +2655,7 @@ begin
   Result := fOwnerDevice.fUDN;
 end;
 
-procedure TUPnP_CustomService.SaveToXMLShort(ShortXMLDescription: TUPnP_XMLStream);
+procedure TUPnP_CustomService.SaveToXMLShort(ShortXMLDescription: IXMLNode);
 {
   Writes the "short" XML description of the service for use in the
   enclosing device's XML self description
@@ -2689,30 +2679,24 @@ begin
 
   // describe the services's own parameters
   // NB this is called as part of a Describe Device call
-  with ShortXMLDescription do
+  with ShortXMLDescription,AddChild(_service) do
   begin
-    WriteTagStart(_service);
-    try
-      WriteTagAndValue(_serviceType, fServiceTypeExpanded);
-      // format the serviceID search header as "urn:upnp-org:serviceID:serviceID"
-      WriteTagAndValue(_serviceId, Format(Schemas_ServiceIdHdrFmt,
-        [fServiceIDSchema, fServiceID]));
-      WriteTagAndValue(_SCPDURL, fSCPDURL);
-      WriteTagAndValue(_controlURL, fcontrolURL);
+    AddChild(_serviceType).Text := fServiceTypeExpanded;
+    // format the serviceID search header as "urn:upnp-org:serviceID:serviceID"
+    AddChild(_serviceId).Text := Format(Schemas_ServiceIdHdrFmt,
+      [fServiceIDSchema, fServiceID]);
+    AddChild(_SCPDURL).Text := fSCPDURL;
+    AddChild(_controlURL).Text := fcontrolURL;
 
-      // if there are any evented variables then fill the eventSubURL tag
-      if anyeventedvariables then
-      begin
-        WriteTagAndValue(_eventSubURL, feventSubURL);
-      end
-      else
-      begin
-        WriteTagAndValue(_eventSubURL, '');
-      end
-
-    finally
-      WriteTagEnd(_service);
-    end;
+    // if there are any evented variables then fill the eventSubURL tag
+    if anyeventedvariables then
+    begin
+      AddChild(_eventSubURL).Text := feventSubURL;
+    end
+    else
+    begin
+      AddChild(_eventSubURL).Text := '';
+    end
   end;
 end;
 
@@ -2915,35 +2899,36 @@ function TUPnP_CustomService.ProcessSOAPAction(Request: TUPnP_HTTPServerRequestW
 }
 var
   i: integer;
+  XMLDoc: IXMLDocument;
+  node: IXMLNode;
 begin
   // preset result so we can exit
   Result := True;
 
   // get the requested variable name from the request XML
-  if Request.HasXmlStream then
-  begin
-
-    with Request.XMLStream do
+  XMLDoc := TXMLDocument.Create ( nil );
+  try
+    XMLDoc.LoadFromStream( Request.XmlStream );
+    with XMLDoc.ChildNodes do
     begin
-      ResetParser;
       // Go to the Body
-      GotoTagName(_Body);
+      node := FindNode(_Body);
       // move on to next tag
-      NextTag;
+      node := node.NextSibling;
 
       // if the soap action and tagname is QSV then process it
       if (Request.SOAPAction = _QueryStateVariable) and
-        (TagName = _QueryStateVariable) then
+        (node.NodeName = _QueryStateVariable) then
       begin
-        NextTag;
+        node := node.NextSibling;;
 
         // check for varName tag
-        if SameText(TagName, _varName) then
+        if SameText(node.NodeName, _varName) then
         begin
           // find the correct variable name
           for i := 0 to pred(fStateVariables.Count) do
           begin
-            if TagValue = fStateVariables[i].fVariableName then
+            if node.Text = fStateVariables[i].fVariableName then
             begin
               // and execute the query
               if fStateVariables[i].ProcessSOAPAction(Request, Response) then
@@ -2962,7 +2947,7 @@ begin
 
       // try to process it as an action
       // if the soap action and tagname match then process it
-      if (Request.SOAPAction = TagName) then
+      if (Request.SOAPAction = node.NodeName) then
       begin
 
         // find the correct action name
@@ -2982,6 +2967,8 @@ begin
         exit;
       end;
     end;
+  finally
+    XMLDoc := nil;
   end;
 
   // return a general error message if we got this far
@@ -3184,7 +3171,7 @@ begin
   cmd := Request.Request.Command;
 
   // check if it is a call to our eventing URL
-  if AnsiSameText(doc, feventSubURL) then
+  if SameText(doc, feventSubURL) then
   begin
     if SameText(cmd, method_Subscribe) then
     begin
@@ -3204,7 +3191,7 @@ begin
   end;
 
   // check if it is a GET call to our description URL, and if so process it...
-  if AnsiSameText(doc, fSCPDURL) then
+  if SameText(doc, fSCPDURL) then
   begin
     if SameText(cmd, method_Get) then
     begin
@@ -3216,7 +3203,7 @@ begin
   end;
 
   // check if it is a POST call to our control URL
-  if AnsiSameText(doc, fControlURL) then
+  if SameText(doc, fControlURL) then
   begin
     if SameText(cmd, method_Post) then
     begin
@@ -3259,17 +3246,30 @@ function TUPnP_CustomService.ProcessDescriptionRequest
     CONTENT-TYPE: text/xml
     DATE: when responded
 }
+var
+  XMLDoc : IXMLDocument;
+  node: IXMLNode;
 begin
-  // get the XML body text for the Service
-  SaveToXML(Response.XMLStream);
-  with Response do
-  begin
-    Response.ResponseNo := 200;
-    Response.ContentType := MimeTypeStr[xml];
-    Response.Date   := NowGMT;
-    Response.Server := Server_Header;
+  XMLDoc := TXMLDocument.Create ( nil );
+  try
+    // get the XML body text for the Service
+    XMLDoc.Active := true;
+    XMLDoc.Version := XMLDoc_Version;
+    XMLDoc.Encoding := XMLDoc_Encoding;
+    SaveToXML(XMLDoc.Node);
+    XMLDoc.XML.Add(''); // add 1 new line at end
+    XMLDoc.SaveToStream(Response.XMLStream);
+    with Response do
+    begin
+      Response.ResponseNo := 200;
+      Response.ContentType := MimeTypeStr[xml];
+      Response.Date   := NowGMT;
+      Response.Server := Server_Header;
+    end;
+    Result := True;
+  finally
+    XMLDoc := nil;
   end;
-  Result := True;
 end;
 
 procedure TUPnP_CustomService.CollectAliveMessages(aList: TUPnP_NotificationCollection);
@@ -3342,59 +3342,44 @@ begin
   lResponse.AddToCollection(aList);
 end;
 
-procedure TUPnP_CustomService.SaveToXML(DescriptionXML: TUPnP_XMLStream);
+procedure TUPnP_CustomService.SaveToXML(DescriptionXML: IXMLNode);
 {
   Writes the object's self description XML
   Status: FULLY TESTED
 }
 var
   i: integer;
+  node: IXMLNode;
 begin
   // the service must provide special header data
-  with DescriptionXML do
+
+  with DescriptionXML.AddChild(_scpd) do
   begin
-    WriteTagStart(XML_VerString);
-    WriteTagStartAndAttributes(_scpd, [_scpdXmlNS]);
-    WriteTagStart(_specVersion);
-    WriteTagAndValue(_major, _majorVersion);
-    WriteTagAndValue(_minor, _minorVersion);
-    WriteTagEnd(_specVersion);
+    Attributes[_attrXmlNS] := _scpdXmlNSValue;
+    with AddChild(_specVersion) do
+    begin
+      AddChild(_major).Text := _majorVersion;
+      AddChild(_minor).Text := _minorVersion;
+    end;
 
-    try
-      // ask the embedded Actions (should be at least one) to describe themselves
-      if factions.Count > 0 then
+    // ask the embedded Actions (should be at least one) to describe themselves
+    if factions.Count > 0 then
+    begin
+      node := AddChild(_actionList);
+      for i := 0 to pred(factions.Count) do
       begin
-        WriteTagStart(_actionList);
-        try
-          for i := 0 to pred(factions.Count) do
-          begin
-            factions[i].SaveToXML(DescriptionXML);
-          end;
-        finally
-          WriteTagEnd(_actionList);
-        end;
+        factions[i].SaveToXML(node);
       end;
+    end;
 
-      // ask the embedded State Variables (should be at least one) to describe themselves
-      if fStateVariables.Count > 0 then
+    // ask the embedded State Variables (should be at least one) to describe themselves
+    if fStateVariables.Count > 0 then
+    begin
+      node := AddChild(_serviceStateTable);
+      for i := 0 to pred(fStateVariables.Count) do
       begin
-        WriteTagStart(_serviceStateTable);
-        try
-          for i := 0 to pred(fStateVariables.Count) do
-          begin
-            fStateVariables[i].SaveToXML(DescriptionXML);
-          end;
-        finally
-          WriteTagEnd(_serviceStateTable);
-        end;
+        fStateVariables[i].SaveToXML(node);
       end;
-
-    finally
-      // the service must provide special footer data
-      WriteTagEnd(_scpd);
-
-      // add 1 new line at end
-      WriteValues([CRLF]);
     end;
   end;
 end;
@@ -3440,26 +3425,42 @@ procedure TUPnP_CustomService.CustomSOAPError(Response: TUPnP_HTTPServerResponse
     </soap:Body>
   </soap:Envelope>
 }
+var
+  XMLDoc : IXMLDocument;
+  node: IXmlNode;
 begin
-  with Response.XMLStream do
-  begin
-    WriteTagStart(XML_VerString);
-    WriteTagStartAndAttributes(_sEnvelope, [_sEnvelopeAttrs]);
-    WriteTagStart(_sBody);
-    WriteTagStart(_sFault);
-    WriteTagAndValue(_faultcode, _sClient);
-    WriteTagAndValue(_faultstring, _UPnPError);
-    WriteTagStart(_detail);
-    WriteTagStartAndAttributes(_UPnPError, [_UPnPErrorXmlNS]);
-    WriteTagAndValue(_errorCode, ErrCode);
-    WriteTagAndValue(_errorDescription, ErrMsg);
-    WriteTagEnd(_UPnPError);
-    WriteTagEnd(_detail);
-    WriteTagEnd(_sFault);
-    WriteTagEnd(_sBody);
-    WriteTagEnd(_sEnvelope);
-    // add 1 new line at end
-    WriteValues([CRLF]);
+  XMLDoc := TXMLDocument.Create ( nil );
+  try
+    XMLDoc.Options := [doNodeAutoIndent];
+    XMLDoc.Active := true;
+    XMLDoc.Version := XMLDoc_Version;
+    XMLDoc.Encoding := XMLDoc_Encoding;
+    with XMLDoc.AddChild(_sEnvelope) do
+    begin
+      Attributes[_attrXmlNS] := _sEnvelopeAttrsXmlNSValue;
+      Attributes[_attrSOAP] := _sEnvelopeAttrsSOAPValue;
+      with AddChild(_sBody) do
+      begin
+        with AddChild(_sFault) do
+        begin
+          AddChild(_faultcode).Text := _sClient;
+          AddChild(_faultstring).Text := _UPnPError;
+          with AddChild(_detail) do
+          begin
+            with AddChild(_UPnPError) do
+            begin
+              Attributes[_attrXmlNS] := _UPnPErrorXmlNSValue;
+              AddChild(_errorCode).Text := ErrCode;
+              AddChild(_errorDescription).Text := ErrMsg;
+            end;
+          end;
+        end;
+      end;
+    end;
+    XMLDoc.XML.Add('');
+    XMLDoc.SaveToStream(Response.XMLStream);
+  finally
+    XMLDoc := nil;
   end;
 end;
 
@@ -3838,352 +3839,346 @@ var
   err: TSOAPErrorCodes;
   tmpevdis: boolean;
   errcode, errmsg: string;
-  body, securityinfo: TUPnP_XMLStream;
+  body, securityinfo: IXMLDocument;
+  RequestDoc : IXMLDocument;
+  ResponseDoc : IXMLDocument;
+  node: IXmlNode;
 begin
   Assert(assigned(fRootDevice));
   Assert(assigned(fOwnerService));
 
   Result := False;
 
-  // check if the message is signed
-  with Request.XMLStream do
-  begin
-    ResetParser;
-    SignResponse := GotoTagName(_SecurityInfo);
-    ResetParser;
-  end;
+  RequestDoc := TXMLDocument.Create ( nil );
+  try
+    RequestDoc.LoadFromStream(Request.XMLStream);
+    RequestDoc.Active := true;
+    // check if the message is signed
+    SignResponse := assigned(RequestDoc.ChildNodes.FindNode( _SecurityInfo ));
 
-  // check if the call requires a signature
-  if fRequiresAuthorization or fRequiresSigning or SignResponse then
-  begin
-
-    // get the DeviceSecurity service
-    if not Assigned(fDevSec) then
+    // check if the call requires a signature
+    if fRequiresAuthorization or fRequiresSigning or SignResponse then
     begin
-      for i := 0 to pred(fRootDevice.Services.Count) do
+      // get the DeviceSecurity service
+      if not Assigned(fDevSec) then
       begin
-        if fRootDevice.Services[i] is TUPnP_DeviceSecurityBase then
+        for i := 0 to pred(fRootDevice.Services.Count) do
         begin
-          fDevSec := TUPnP_DeviceSecurityBase(fRootDevice.Services[i]);
-          break;
+          if fRootDevice.Services[i] is TUPnP_DeviceSecurityBase then
+          begin
+            fDevSec := TUPnP_DeviceSecurityBase(fRootDevice.Services[i]);
+            break;
+          end;
         end;
       end;
-    end;
 
-    // use the DeviceSecurity service to check the signature
-    if Assigned(fDevSec) then
-    begin
-      authresult := fDevSec.CheckDsigAuthorisation(self, Request.XMLStream);
-    end
-    else
-    begin
-      authresult := auth_GeneralError;
-    end;
-  end
-
-  // the call is authorised unless found otherwise...
-  else
-  begin
-    authresult := auth_Accepted;
-  end;
-
-  // if not authorised then ...
-  if authresult <> auth_Accepted then
-  begin
-    case authresult of
-      auth_MalformedSoap:
+      // use the DeviceSecurity service to check the signature
+      if Assigned(fDevSec) then
       begin
-        err := err_Signature_Malformed_or_Missing;
-      end;
-
-      auth_UnknownSession:
-      begin
-        err := err_Invalid_Session_Key_ID;
-      end;
-
-      auth_InsufficientPermissions:
-      begin
-        err := err_Action_Not_Authorized;
-      end;
-
-      auth_WrongSequenceNumber:
-      begin
-        err := err_Invalid_Sequence;
-      end;
-
-      auth_SignatureNotVerified:
-      begin
-        err := err_Signature_Failure;
-      end;
-
-      auth_BadDigest:
-      begin
-        err := err_Signature_Failure;
-      end;
-
-      // err_Signature_Bad_Digest;
-
-      auth_Bad_PublicKey:
-      begin
-        err := err_Bad_Public_Key;
-      end;
-
-      auth_BadControlURL:
-      begin
-        err := err_Invalid_ControlURL;
-      end;
-
+        authresult := fDevSec.CheckDsigAuthorisation(self, RequestDoc.Node);
+      end
       else
       begin
-        err := err_Action_Failed;
+        authresult := auth_GeneralError;
+      end;
+    end
+
+    // the call is authorised unless found otherwise...
+    else
+    begin
+      authresult := auth_Accepted;
+    end;
+
+    // if not authorised then ...
+    if authresult <> auth_Accepted then
+    begin
+      case authresult of
+        auth_MalformedSoap:
+        begin
+          err := err_Signature_Malformed_or_Missing;
+        end;
+
+        auth_UnknownSession:
+        begin
+          err := err_Invalid_Session_Key_ID;
+        end;
+
+        auth_InsufficientPermissions:
+        begin
+          err := err_Action_Not_Authorized;
+        end;
+
+        auth_WrongSequenceNumber:
+        begin
+          err := err_Invalid_Sequence;
+        end;
+
+        auth_SignatureNotVerified:
+        begin
+          err := err_Signature_Failure;
+        end;
+
+        auth_BadDigest:
+        begin
+          err := err_Signature_Failure;
+        end;
+
+        // err_Signature_Bad_Digest;
+
+        auth_Bad_PublicKey:
+        begin
+          err := err_Bad_Public_Key;
+        end;
+
+        auth_BadControlURL:
+        begin
+          err := err_Invalid_ControlURL;
+        end;
+
+        else
+        begin
+          err := err_Action_Failed;
+        end;
+      end;
+
+      //  => return an error code
+      fOwnerService.SOAPError(Response, err);
+      exit;
+    end;
+
+    // Go to the ActionName
+    //  - no need to check if it is OK, since the caller has already done this...
+    node := RequestDoc.ChildNodes.FindNode(fActionName);
+
+    if farguments.Count > 0 then
+      // we have to get the arguments from XML
+    begin
+
+      i := 0;
+      repeat
+        with fArguments[i] do
+        begin
+          // if the argument is Output, there is no need to do any further parsing
+          //  (since In arguments MUST be declared before Out arguments)
+          if fdirection >= Output then
+          begin
+            break;
+          end;
+
+          // move on to next tag
+          node := node.NextSibling;
+
+          // if argument name is wrong then we failed...
+          if node.NodeName <> argumentname then
+          begin
+            //  => return an error code 500,402
+            fOwnerService.SOAPError(Response, err_Invalid_Arguments);
+            exit;
+          end;
+
+          // no related state variable...
+          if (frelatedStateVariable = nil) then
+          begin
+            //  => return an error code 500,402
+            fOwnerService.SOAPError(Response, err_RSV_Not_Implemented);
+            exit;
+          end;
+
+          try
+            // test if the value matches that of the relatedStateVariable
+            frelatedStateVariable.CheckValueOK(node.Text);
+          except
+            // arg value does NOT match - i.e. then we failed => exit
+            //  (swallows exception)
+            on ERangeError do
+            begin
+              // argument is out of range
+              fOwnerService.SOAPError(Response, err_Argument_Value_Out_of_Range);
+              exit;
+            end;
+            else
+            begin
+              // argument is otherwise bad
+              fOwnerService.SOAPError(Response, err_Argument_Value_Invalid);
+              exit;
+            end;
+          end;
+
+          // assign the argument value
+          fValue := node.Text;
+
+        end;
+        Inc(i);
+      until i = farguments.Count;
+    end;
+
+    // if we got here, all the arguments (if any) are OK
+
+    // preload error code and message in case the user forgets..
+    errcode := SOAP_Error[err_Action_Failed, code];
+    errmsg  := SOAP_Error[err_Action_Failed, desc];
+
+    // turn off eventing
+    tmpevdis := fOwnerService.fEventNotificationDisabled;
+    fOwnerService.fEventNotificationDisabled := True;
+
+    try
+      try
+
+        // assign the in-args to their respective RSV's
+        for i := 0 to pred(farguments.Count) do
+        begin
+          // if the DontPass bit is set, then don't pass the argument
+          if not (i in fDontPassArguments) then
+          begin
+            with fArguments[i] do
+            begin
+              if (fdirection = Input) and (not fDontUpdateRSV) then
+              begin
+                // use the RSV's public property value in order to trigger events...
+                frelatedStateVariable.EncodedValue := fValue;
+              end;
+            end;
+          end;
+        end;
+        Result := True;
+
+      except
+        on E: Exception do
+        begin
+          errcode := SOAP_Error[err_Argument_Value_Invalid, code];
+          errmsg  := SOAP_Error[err_Argument_Value_Invalid, desc];
+          Result  := False;
+        end;
+      end;
+
+      // execute the action externally
+      if Result and assigned(fOnActionExecute) then
+      begin
+
+        // wrap the OnActionExecute call-back in a critical section
+        syncActionExecuteCritSect.Enter;
+        try
+
+          // execute the call-back -- but synchronize with the VCL thread...
+          TThread.Synchronize(nil, syncActionExecute);
+          errcode := syncErrCode;
+          errmsg  := syncErrMsg;
+          Result  := syncResult;
+
+        finally
+          // quit the critical section
+          syncActionExecuteCritSect.Leave;
+        end;
+      end;
+
+    finally
+      // re-enable eventing
+      fOwnerService.fEventNotificationDisabled := tmpevdis;
+    end;
+
+    if not Result then
+    begin
+      // if action failed then return a SOAP error code
+      fOwnerService.CustomSOAPError(Response, errcode, errmsg);
+      exit;
+    end;
+
+    // assign the RSV's to the out-args
+    for i := 0 to pred(farguments.Count) do
+    begin
+
+      // if the DontPass bit is set, then don't pass the argument
+      if not (i in fDontPassArguments) then
+      begin
+        with fArguments[i] do
+        begin
+          if (fdirection >= Output) and (not fDontUpdateRSV) then
+          begin
+            // set the value; add escaping if necessary...
+            fValue := frelatedStateVariable.EncodedValue;
+          end;
+        end;
       end;
     end;
 
-    //  => return an error code
-    fOwnerService.SOAPError(Response, err);
-    exit;
-  end;
-
-  Request.XMLStream.ResetParser;
-  // Go to the ActionName
-  //  - no need to check if it is OK, since the caller has already done this...
-  Request.XMLStream.GotoTagName(fActionName);
-
-  if farguments.Count > 0 then
-    // we have to get the arguments from XML
-  begin
-
-    i := 0;
-    repeat
-      with fArguments[i] do
-      begin
-        // if the argument is Output, there is no need to do any further parsing
-        //  (since In arguments MUST be declared before Out arguments)
-        if fdirection >= Output then
-        begin
-          break;
-        end;
-
-        // move on to next tag
-        Request.XMLStream.NextTag;
-
-        // if argument name is wrong then we failed...
-        if Request.XMLStream.TagName <> argumentname then
-        begin
-          //  => return an error code 500,402
-          fOwnerService.SOAPError(Response, err_Invalid_Arguments);
-          exit;
-        end;
-
-        // no related state variable...
-        if (frelatedStateVariable = nil) then
-        begin
-          //  => return an error code 500,402
-          fOwnerService.SOAPError(Response, err_RSV_Not_Implemented);
-          exit;
-        end;
-
-        try
-          // test if the value matches that of the relatedStateVariable
-          frelatedStateVariable.CheckValueOK(Request.XMLStream.TagValue);
-        except
-          // arg value does NOT match - i.e. then we failed => exit
-          //  (swallows exception)
-          on ERangeError do
-          begin
-            // argument is out of range
-            fOwnerService.SOAPError(Response, err_Argument_Value_Out_of_Range);
-            exit;
-          end;
-          else
-          begin
-            // argument is otherwise bad
-            fOwnerService.SOAPError(Response, err_Argument_Value_Invalid);
-            exit;
-          end;
-        end;
-
-        // assign the argument value
-        fValue := Request.XMLStream.TagValue;
-
-      end;
-      Inc(i);
-    until i = farguments.Count;
-  end;
-
-  // if we got here, all the arguments (if any) are OK
-
-  // preload error code and message in case the user forgets..
-  errcode := SOAP_Error[err_Action_Failed, code];
-  errmsg  := SOAP_Error[err_Action_Failed, desc];
-
-  // turn off eventing
-  tmpevdis := fOwnerService.fEventNotificationDisabled;
-  fOwnerService.fEventNotificationDisabled := True;
-
-  try
+    // create the response body
+    body := TXMLDocument.Create ( nil );
     try
-
-      // assign the in-args to their respective RSV's
-      for i := 0 to pred(farguments.Count) do
+      body.Active := true;
+      with body.AddChild(_sBody) do
       begin
+        if SignResponse then
+          Attributes[_attrXmlNS] := _sBodyAttrSignedValue;
 
-        // if the DontPass bit is set, then don't pass the argument
-        if not (i in fDontPassArguments) then
+        with body.AddChild(Format(_uResponseFmtXmlNS, [Trim(factionName),
+          fOwnerService.fServiceTypeExpanded])) do
         begin
-          with fArguments[i] do
+          for i := 0 to pred(fArguments.Count) do
           begin
-            if (fdirection = Input) and (not fDontUpdateRSV) then
+            with fArguments[i] do
+              // if it is an output argument then write it...
             begin
-              // use the RSV's public property value in order to trigger events...
-              frelatedStateVariable.EncodedValue := fValue;
+              if fDirection >= Output then
+              begin
+                AddChild(fargumentName).Text := fValue;
+              end;
             end;
           end;
         end;
       end;
-      Result := True;
 
-    except
-      on E: Exception do
-      begin
-        errcode := SOAP_Error[err_Argument_Value_Invalid, code];
-        errmsg  := SOAP_Error[err_Argument_Value_Invalid, desc];
-        Result  := False;
-      end;
-    end;
-
-    // execute the action externally
-    if Result and assigned(fOnActionExecute) then
-    begin
-
-      // wrap the OnActionExecute call-back in a critical section
-      syncActionExecuteCritSect.Enter;
+      securityinfo := nil;
       try
-
-        // execute the call-back -- but synchronize with the VCL thread...
-        TThread.Synchronize(nil, syncActionExecute);
-        errcode := syncErrCode;
-        errmsg  := syncErrMsg;
-        Result  := syncResult;
-
-      finally
-        // quit the critical section
-        syncActionExecuteCritSect.Leave;
-      end;
-    end;
-
-  finally
-    // re-enable eventing
-    fOwnerService.fEventNotificationDisabled := tmpevdis;
-  end;
-
-  if not Result then
-  begin
-    // if action failed then return a SOAP error code
-    fOwnerService.CustomSOAPError(Response, errcode, errmsg);
-    exit;
-  end;
-
-  // assign the RSV's to the out-args
-  for i := 0 to pred(farguments.Count) do
-  begin
-
-    // if the DontPass bit is set, then don't pass the argument
-    if not (i in fDontPassArguments) then
-    begin
-      with fArguments[i] do
-      begin
-        if (fdirection >= Output) and (not fDontUpdateRSV) then
+        // sign the body thereby creating the SecurityInfo
+        if SignResponse and Assigned(fDevSec) then
         begin
-          // set the value; add escaping if necessary...
-          fValue := frelatedStateVariable.EncodedValue;
+          fDevSec.Sign(self, body.Node, securityinfo.Node);
         end;
-      end;
-    end;
-  end;
 
-  // create the response body
-  body := TUPnP_XMLStream.Create;
-  try
-    // write the body of the response
-    with body do
-    begin
-      if SignResponse then
-      begin
-        WriteTagStartAndAttributes(_sBody, [_sBodyAttrSigned]);
-      end
-      else
-      begin
-        WriteTagStart(_sBody);
-      end;
-
-      WriteTagStart(Format(_uResponseFmtXmlNS, [Trim(factionName),
-        fOwnerService.fServiceTypeExpanded]));
-
-      for i := 0 to pred(fArguments.Count) do
-      begin
-        with fArguments[i] do
-          // if it is an output argument then write it...
-        begin
-          if fDirection >= Output then
+        // write the response envelope
+        ResponseDoc := TXMLDocument.Create ( nil );
+        try
+          ResponseDoc.Options := [doNodeAutoIndent];
+          ResponseDoc.Active := true;
+          ResponseDoc.Version := XMLDoc_Version;
+          ResponseDoc.Encoding := XMLDoc_Encoding;
+          with ResponseDoc.AddChild(_sEnvelope) do
           begin
-            WriteTagAndValue(fargumentName, fValue);
+            Attributes[_attrXmlNS] := _sEnvelopeAttrsXmlNSValue;
+            Attributes[_attrSOAP] := _sEnvelopeAttrsSOAPValue;
+
+            // write the security info header
+            if Assigned(securityinfo) then
+            begin
+              with AddChild(_sHeader) do
+              begin
+                ChildNodes.Add(securityinfo.DocumentElement.CloneNode(true));
+              end;
+            end;
+
+            ChildNodes.Add(body.DocumentElement.CloneNode(true));
           end;
+          ResponseDoc.XML.Add('');
+          Response.XMLStream.Position := 0;
+          ResponseDoc.SaveToStream(Response.XMLStream);
+        finally
+          ResponseDoc := nil;
         end;
+      finally
+        securityinfo := nil;
       end;
-
-      WriteTagEnd(Format(_uResponseFmt, [Trim(factionName)]));
-      WriteTagEnd(_sBody);
-    end;
-
-    securityinfo := nil;
-    try
-      // sign the body thereby creating the SecurityInfo
-      if SignResponse and Assigned(fDevSec) then
-      begin
-        fDevSec.Sign(self, body, securityinfo);
-      end;
-
-      // write the response envelope
-      with Response.XMLStream do
-      begin
-        // write the envelope start
-        WriteTagStart(XML_VerString);
-        WriteTagStartAndAttributes(_sEnvelope, [_sEnvelopeAttrs]);
-
-        // write the security info header
-        if Assigned(securityinfo) then
-        begin
-          WriteTagStart(_sHeader);
-          WriteStream(securityinfo);
-          WriteTagEnd(_sHeader);
-        end;
-
-        // write the body
-        WriteStream(body);
-
-        // write the envelope end
-        WriteTagEnd(_sEnvelope);
-
-        // add 1 new line at end
-        WriteValues([CRLF]);
-      end;
-
     finally
-      if Assigned(securityinfo) then
-      begin
-        securityinfo.Free;
-      end;
+      body := nil;
     end;
 
+    // if eventing is enabled then post a message to the root window to initiate eventing
+    if not tmpevdis then
+    begin
+      fRootDevice.MustPublishEvents;
+    end;
   finally
-    body.Free;
-  end;
-
-  // if eventing is enabled then post a message to the root window to initiate eventing
-  if not tmpevdis then
-  begin
-    fRootDevice.MustPublishEvents;
+    RequestDoc := nil;
   end;
 end;
 
@@ -4206,38 +4201,31 @@ begin
   end;
 end;
 
-procedure TUPnP_Action.SaveToXML(DescriptionXML: TUPnP_XMLStream);
+procedure TUPnP_Action.SaveToXML(DescriptionXML: IXMLNOde);
 {
   Writes the object's self description XML
   Status: FULLY TESTED
 }
 var
   i: integer;
+  list: IXMLNode;
 begin
   // describe the Action's parameters
   with DescriptionXML do
   begin
-    WriteTagStart(_action);
-    try
-      WriteTagAndValue(_name, factionname);
+    with AddChild(_action) do
+    begin
+      AddChild(_name).Text := factionname;
 
       // ask the embedded arguments (should be at least one) to describe themselves
       if fArguments.Count > 0 then
       begin
-        WriteTagStart(_argumentList);
-        try
-          for i := 0 to pred(fArguments.Count) do
-          begin
-            fArguments[i].SaveToXML(DescriptionXML);
-          end;
-        finally
-          WriteTagEnd(_argumentList);
+        list := AddChild(_argumentList);
+        for i := 0 to pred(fArguments.Count) do
+        begin
+          fArguments[i].SaveToXML(list);
         end;
       end;
-
-    finally
-      // close the description of the Action's parameters
-      WriteTagEnd(_action);
     end;
   end;
 end;
@@ -4939,7 +4927,7 @@ begin
   Result := UPnP_IndyExtensions.BuildURL(scheme, host, fDescriptionURL, port);
 end;
 
-procedure TUPnP_RootDevice.SaveToXML(DescriptionXML: TUPnP_XMLStream);
+procedure TUPnP_RootDevice.SaveToXML(DescriptionXML: IXMLNode);
 {
   Writes the object's self description XML
   Status: FULLY TESTED
@@ -4948,22 +4936,23 @@ begin
   // the root device must provide additional header data
   with DescriptionXML do
   begin
-    WriteTagStart(XML_VerString);
-    WriteTagStartAndAttributes(_root, [_rootXmlNS]);
-    WriteTagStart(_specVersion);
-    WriteTagAndValue(_major, _majorVersion);
-    WriteTagAndValue(_minor, _minorVersion);
-    WriteTagEnd(_specVersion);
-    WriteTagAndValue(_URLBase, fURLBase);
+    with AddChild(_root) do
+    begin
+      Attributes[_attrXmlNS] := _rootXmlNSValue;
+      with AddChild(_specVersion) do
+      begin
+        AddChild(_major).Text := _majorVersion;
+        AddChild(_minor).Text := _minorVersion;
+      end;
+      AddChild(_URLBase).Text := fURLBase;
 
-    // then we just describe the device itself...
-    inherited;
+      // then we just describe the device itself...
+      inherited;
 
-    // the root device must also provide corresponding additional footer data
-    WriteTagEnd(_root);
-
-    // add 1 new line at end
-    WriteValues([CRLF]);
+      // add 1 new line at end
+      // JD?
+      // WriteValues([CRLF]);
+    end;
   end;
 end;
 
@@ -5121,7 +5110,7 @@ begin
   end;
 end;
 
-procedure TUPnP_RootDevice.DispatchUDPRequest(aData: TStream;
+procedure TUPnP_RootDevice.DispatchUDPRequest(aData: TIdBytes;
   aBinding: TUPnP_IdSocketHandle);
 {
   Main dispatcher for handling incoming UPnP Udp multicast messages
@@ -5175,13 +5164,30 @@ function TUPnP_RootDevice.ProcessDescriptionGet
     CONTENT-TYPE: text/xml
     DATE: when responded
 }
+var
+  XMLDoc : IXMLDocument;
+  node: IXmlNode;
 begin
   // Preset "result" to true so we can just exit if we handle the call
   Result := True;
-  // get the XML body text for the Device, plus it's embedded Devices and Services
-  SaveToXML(Response.XmlStream);
-  // return HTTP 200 OK
-  Response.Response.ResponseNo := 200;
+
+  XMLDoc := TXMLDocument.Create ( nil );
+  try
+    XMLDoc.Options := [doNodeAutoIndent];
+    XMLDoc.Active := true;
+    XMLDoc.Version := XMLDoc_Version;
+    XMLDoc.Encoding := XMLDoc_Encoding;
+
+    // get the XML body text for the Device, plus it's embedded Devices and Services
+    SaveToXML(XMLDoc.Node);
+    XMLDoc.SaveToStream( Response.XmlStream );
+    // return HTTP 200 OK
+    Response.Response.ContentType := 'text/xml';
+    Response.Response.Charset := 'utf-8';
+    Response.Response.ResponseNo := 200;
+  finally
+    XMLDoc := nil;
+  end;
 end;
 
 procedure TUPnP_RootDevice.CollectMSearchResponses(Request: TUPnP_MSearchRequest;
@@ -5546,7 +5552,7 @@ begin
   Result := fIconName;
 end;
 
-procedure TUPnP_Icon.SaveToXML(DescriptionXML: TUPnP_XMLStream);
+procedure TUPnP_Icon.SaveToXML(DescriptionXML: IXMLNode);
 {
   Writes the object's self description XML
   Status: FULLY TESTED
@@ -5555,15 +5561,13 @@ begin
   // describe the icon's own parameters
   with DescriptionXML do
   begin
-    WriteTagStart(_icon);
-    try
-      WriteTagAndValue(_mimetype, MimeTypeStr[fMimeType]);
-      WriteTagAndValue(_width, IntToStr(fWidth));
-      WriteTagAndValue(_height, IntToStr(fHeight));
-      WriteTagAndValue(_depth, IntToStr(fDepth));
-      WriteTagAndValue(_url, fURL);
-    finally
-      WriteTagEnd(_icon);
+    with AddChild(_icon) do
+    begin
+      AddChild(_mimetype).Text := MimeTypeStr[fMimeType];
+      AddChild(_width).Text := IntToStr(fWidth);
+      AddChild(_height).Text := IntToStr(fHeight);
+      AddChild(_depth).Text := IntToStr(fDepth);
+      AddChild(_url).Text := fURL;
     end;
   end;
 end;
@@ -5580,7 +5584,7 @@ begin
   Result := False;
 
   // if it is not a GET for our Icon URL, then exit...
-  if not AnsiSameText(Request.Request.Document, fURL) then
+  if not SameText(Request.Request.Document, fURL) then
   begin
     exit;
   end;
@@ -5819,7 +5823,7 @@ begin
   inherited;
 end;
 
-procedure TUPnP_Argument.SaveToXML(DescriptionXML: TUPnP_XMLStream);
+procedure TUPnP_Argument.SaveToXML(DescriptionXML: IXMLNode);
 {
   Writes the object's self description XML
   Status: FULLY TESTED
@@ -5828,21 +5832,19 @@ begin
   // describe the argument's parameters
   with DescriptionXML do
   begin
-    WriteTagStart(_argument);
-    try
+    with AddChild(_argument) do
+    begin
       // NOTE the sequence: name, relatedStateVariable, direction , retval is important to
       //  ensure correct handling by Windows ME
-      WriteTagAndValue(_name, fargumentname);
-      WriteTagAndValue(_relatedStateVariable, frelatedStateVariable.fvariablename);
-      WriteTagAndValue(_direction, ArgumentTypeStr[fdirection]);
+      AddChild(_name).Text := fargumentname;
+      AddChild(_relatedStateVariable).Text := frelatedStateVariable.fvariablename;
+      AddChild(_direction).Text := ArgumentTypeStr[fdirection];
 
       // only declare a "retval" if it is indeed a retval...
       if fdirection = OutputRetVal then
       begin
-        WriteTagAndValue(_retval, '');
+        AddChild(_retval).Text := '';
       end;
-    finally
-      WriteTagEnd(_argument);
     end;
   end;
 end;
@@ -6120,7 +6122,7 @@ begin
   inherited;
 end;
 
-procedure TUPnP_StateVariable.SaveToXML(DescriptionXML: TUPnP_XMLStream);
+procedure TUPnP_StateVariable.SaveToXML(DescriptionXML: IXMLNode);
 {
   Writes the object's self description XML
   Status: FULLY TESTED
@@ -6129,56 +6131,46 @@ var
   i: integer;
 begin
   // describe the State Variable's parameters
-  with DescriptionXML do
+  with DescriptionXML.AddChild(_stateVariable) do
   begin
-    WriteTagStartAndAttributes(_stateVariable,
-      [Format(_stateVariableAttr, [_yesno[fSendEvents]])]);
-    try
-      WriteTagAndValue(_name, fvariablename);
-      WriteTagAndValue(_dataType, VariableTypeStr[fdataType]);
+    Attributes[_stateVariableAttr] := Format(_stateVariableAttrValue, [_yesno[fSendEvents]]);
+    AddChild(_name).Text := fvariablename;
+    AddChild(_dataType).Text := VariableTypeStr[fdataType];
 (**
-      The following "if then" statement is added to avoid a problem with UPnP Certfication Test Tool v1.1
-       (the tool fails the service if it advertises an empty <defaultValue> tag)
+    The following "if then" statement is added to avoid a problem with UPnP Certfication Test Tool v1.1
+     (the tool fails the service if it advertises an empty <defaultValue> tag)
 **)
-      if fdefaultValue <> '' then
+    if fdefaultValue <> '' then
+    begin
+      AddChild(_defaultValue).Text := fdefaultValue;
+    end;
+
+    case fAllowedValues of
+      Range:
       begin
-        WriteTagAndValue(_defaultValue, fdefaultValue);
+        // describe the Allowed Value Range's parameters
+        with AddChild(_allowedValueRange) do
+        begin
+          AddChild(_minimum).Text := FloatToStr(fminimum);
+          AddChild(_maximum).Text := FloatToStr(fmaximum);
+          AddChild(_step).Text := FloatToStr(fstep);
+        end;
       end;
 
-      case fAllowedValues of
-        Range:
+      List:
+      begin
+        // describe the Allowed Value Lists's parameters, if it contains anything
+        if fallowedStrings.Count > 0 then
         begin
-          // describe the Allowed Value Range's parameters
-          WriteTagStart(_allowedValueRange);
-          try
-            WriteTagAndValue(_minimum, FloatToStr(fminimum));
-            WriteTagAndValue(_maximum, FloatToStr(fmaximum));
-            WriteTagAndValue(_step, FloatToStr(fstep));
-          finally
-            WriteTagEnd(_allowedValueRange);
-          end;
-        end;
-
-        List:
-        begin
-          // describe the Allowed Value Lists's parameters, if it contains anything
-          if fallowedStrings.Count > 0 then
+          with AddChild(_allowedValueList) do
           begin
-            WriteTagStart(_allowedValueList);
-            try
-              for i := 0 to pred(fallowedStrings.Count) do
-              begin
-                WriteTagAndValue(_allowedValue, fallowedStrings.Strings[i]);
-              end;
-            finally
-              WriteTagEnd(_allowedValueList);
+            for i := 0 to pred(fallowedStrings.Count) do
+            begin
+              AddChild(_allowedValue).Text := fallowedStrings.Strings[i];
             end;
           end;
         end;
       end;
-
-    finally
-      WriteTagEnd(_stateVariable);
     end;
   end;
 end;
@@ -6742,7 +6734,7 @@ begin
   end;
 end;
 
-procedure TUPnP_StateVariable.SaveEventToXML(EventXML: TUPnP_XMLStream);
+procedure TUPnP_StateVariable.SaveEventToXML(EventXML: IXMLNode);
 {
   Creates the XML for an Event (change of state) message
   Status: FULLY TESTED
@@ -6756,12 +6748,10 @@ procedure TUPnP_StateVariable.SaveEventToXML(EventXML: TUPnP_XMLStream);
   </e:propertyset>
 }
 begin
-  with EventXML do
+  with EventXML.AddChild(_eproperty) do
   begin
-    WriteTagStart(_eproperty);
     // write the value; add escaping if necessary...
-    WriteTagAndValue(fvariableName, EncodedValue);
-    WriteTagEnd(_eproperty);
+    AddChild(fvariableName).Text := EncodedValue;
   end;
 end;
 
@@ -6776,185 +6766,196 @@ var
   i:   integer;
   authresult: TUPnP_AuthorisationResult;
   err: TSOAPErrorCodes;
-  body, securityinfo: TUPnP_XMLStream;
+  body, securityinfo: IXMLDocument;
+  RequestDoc: IXMLDocument;
+  ResponseDoc: IXMLDocument;
 begin
   Assert(assigned(fRootDevice));
   Assert(assigned(fOwnerService));
 
-  // exit if the call is not for us
-  Result := False;
-  if fvariablename <> Request.XMLStream.TagValue then
-  begin
-    exit;
-  end;
+  RequestDoc := TXMLDocument.Create ( nil );
+  try
+    // get the XML body text for the Service
+    RequestDoc.Active := true;
+    RequestDoc.Version := XMLDoc_Version;
+    RequestDoc.Encoding := XMLDoc_Encoding;
+    Request.XMLStream.Position := 0;
+    RequestDoc.LoadFromStream(Request.XMLStream);
 
-  // check if the message is signed
-  with Request.XMLStream do
-  begin
-    ResetParser;
-    fSignResponse := GotoTagName(_SecurityInfo);
-    ResetParser;
-  end;
+    // exit if the call is not for us
+    Result := False;
+    if fvariablename <> RequestDoc.DocumentElement.Text then
+    begin
+      exit;
+    end;
 
-  // check if the call requires a signature
-  if fRequiresAuthorization or fRequiresSigning or fSignResponse then
-  begin
+    // check if the message is signed
+    with RequestDoc do
+    begin
+      fSignResponse := assigned(ChildNodes.FindNode(_SecurityInfo));
+    end;
 
-    // get the DeviceSecurity service
-    if not Assigned(fDevSec) then
+    // check if the call requires a signature
+    if fRequiresAuthorization or fRequiresSigning or fSignResponse then
     begin
 
-      for i := 0 to pred(fRootDevice.Services.Count) do
+      // get the DeviceSecurity service
+      if not Assigned(fDevSec) then
       begin
-        if fRootDevice.Services[i] is TUPnP_DeviceSecurityBase then
+
+        for i := 0 to pred(fRootDevice.Services.Count) do
         begin
-          fDevSec := TUPnP_DeviceSecurityBase(fRootDevice.Services[i]);
-          break;
+          if fRootDevice.Services[i] is TUPnP_DeviceSecurityBase then
+          begin
+            fDevSec := TUPnP_DeviceSecurityBase(fRootDevice.Services[i]);
+            break;
+          end;
         end;
       end;
-    end;
 
-    // use the DeviceSecurity service to check the signature
-    if Assigned(fDevSec) then
-    begin
-      authresult := fDevSec.CheckDsigAuthorisation(self, Request.XMLStream);
-    end
-    else
-    begin
-      authresult := auth_GeneralError;
-    end;
-  end
-
-  // the call is authorised unless found otherwise...
-  else
-  begin
-    authresult := auth_Accepted;
-  end;
-
-  // if not authorised then ...
-  if authresult <> auth_Accepted then
-  begin
-    case authresult of
-      auth_MalformedSoap:
+      // use the DeviceSecurity service to check the signature
+      if Assigned(fDevSec) then
       begin
-        err := err_Signature_Malformed_or_Missing;
-      end;
-
-      auth_UnknownSession:
-      begin
-        err := err_Invalid_Session_Key_ID;
-      end;
-
-      auth_InsufficientPermissions:
-      begin
-        err := err_Action_Not_Authorized;
-      end;
-
-      auth_WrongSequenceNumber:
-      begin
-        err := err_Invalid_Sequence;
-      end;
-
-      auth_SignatureNotVerified:
-      begin
-        err := err_Signature_Failure;
-      end;
-
-      auth_BadDigest:
-      begin
-        err := err_Signature_Bad_Digest;
-      end;
-
-      auth_Bad_PublicKey:
-      begin
-        err := err_Bad_Public_Key;
-      end;
-
-      auth_BadControlURL:
-      begin
-        err := err_Invalid_ControlURL;
-      end;
-
-      else
-      begin
-        err := err_Action_Failed;
-      end;
-    end;
-
-    //  => return an error code
-    fOwnerService.SOAPError(Response, err);
-    Result := True;
-    exit;
-  end;
-
-  // create the response body
-  body := TUPnP_XMLStream.Create;
-  try
-    with body do
-    begin
-      if fSignResponse then
-      begin
-        WriteTagStartAndAttributes(_sBody, [_sBodyAttrSigned]);
+        authresult := fDevSec.CheckDsigAuthorisation(self, RequestDoc.Node);
       end
       else
       begin
-        WriteTagStart(_sBody);
+        authresult := auth_GeneralError;
       end;
+    end
 
-      // write the body of the response
-      WriteTagStartAndAttributes(_uQSV, [_uQSV_XmlNS]);
-
-      // write the value; add escaping if necessary...
-      WriteTagAndValue(_return, EncodedValue);
-
-      WriteTagEnd(_uQSV);
-      WriteTagEnd(_sBody);
+    // the call is authorised unless found otherwise...
+    else
+    begin
+      authresult := auth_Accepted;
     end;
 
-    securityinfo := nil;
-    try
-      // sign the body thereby creating the SecurityInfo
-      if fSignResponse and Assigned(fDevSec) then
-      begin
-        fDevSec.Sign(self, body, securityinfo);
-      end;
-
-      // write the response envelope
-      with Response.XMLStream do
-      begin
-        // write the envelope start
-        WriteTagStart(XML_VerString);
-        WriteTagStartAndAttributes(_sEnvelope, [_sEnvelopeAttrs]);
-
-        // write the security info header
-        if Assigned(securityinfo) then
+    // if not authorised then ...
+    if authresult <> auth_Accepted then
+    begin
+      case authresult of
+        auth_MalformedSoap:
         begin
-          WriteTagStart(_sHeader);
-          WriteStream(securityinfo);
-          WriteTagEnd(_sHeader);
+          err := err_Signature_Malformed_or_Missing;
         end;
 
-        // write the body
-        WriteStream(body);
+        auth_UnknownSession:
+        begin
+          err := err_Invalid_Session_Key_ID;
+        end;
 
-        // write the envelope end
-        WriteTagEnd(_sEnvelope);
+        auth_InsufficientPermissions:
+        begin
+          err := err_Action_Not_Authorized;
+        end;
 
-        // add 1 new line at end
-        WriteLN('');
+        auth_WrongSequenceNumber:
+        begin
+          err := err_Invalid_Sequence;
+        end;
+
+        auth_SignatureNotVerified:
+        begin
+          err := err_Signature_Failure;
+        end;
+
+        auth_BadDigest:
+        begin
+          err := err_Signature_Bad_Digest;
+        end;
+
+        auth_Bad_PublicKey:
+        begin
+          err := err_Bad_Public_Key;
+        end;
+
+        auth_BadControlURL:
+        begin
+          err := err_Invalid_ControlURL;
+        end;
+
+        else
+        begin
+          err := err_Action_Failed;
+        end;
       end;
 
-      // if we got here then we succeeded
+      //  => return an error code
+      fOwnerService.SOAPError(Response, err);
       Result := True;
+      exit;
+    end;
 
-    finally
-      if Assigned(securityinfo) then
+    // create the response body
+    body := TXMLDocument.Create(nil);
+    try
+      body.Active := true;
+      with body do
       begin
-        securityinfo.Free;
+        with AddChild(_sBody) do
+        begin
+          if fSignResponse then
+          begin
+            Attributes[_attrXmlNS] := _sBodyAttrSignedValue;
+          end;
+
+          // write the body of the response
+          with AddChild(_uQSV) do
+          begin
+            Attributes[_attrXmlNS] := _uQSV_XmlNSValue;
+
+            // write the value; add escaping if necessary...
+            AddChild(_return).Text := EncodedValue;
+          end;
+        end;
+
+        securityinfo := nil;
+        try
+          // sign the body thereby creating the SecurityInfo
+          if fSignResponse and Assigned(fDevSec) then
+          begin
+            fDevSec.Sign(self, body.Node, securityinfo.Node);
+          end;
+
+          // write the response envelope
+          ResponseDoc:= TXMLDocument.Create(nil);
+          try
+            ResponseDoc.Active := true;
+            ResponseDoc.Version := XMLDoc_Version;
+            ResponseDoc.Encoding := XMLDoc_Encoding;
+
+            // write the envelope start
+            with ResponseDoc.AddChild(_sEnvelope) do
+            begin
+              Attributes[_attrXmlNS] := _sEnvelopeAttrsXmlNSValue;
+              Attributes[_attrSOAP] := _sEnvelopeAttrsSOAPValue;
+
+              // write the security info header
+              if Assigned(securityinfo) then
+              begin
+                AddChild(_sHeader).ChildNodes.Add(securityinfo.DocumentElement.CloneNode(true));
+              end;
+              // write the body
+              ChildNodes.Add(body.DocumentElement.CloneNode(true));
+            end;
+            // add 1 new line at end
+            ResponseDoc.XML.Add('');
+            ResponseDoc.SaveToStream(Response.XMLStream);
+
+            // if we got here then we succeeded
+            Result := True;
+          finally
+            ResponseDoc := nil;
+          end;
+        finally
+          securityinfo := nil;
+        end;
       end;
+    finally
+      body := nil;
     end;
   finally
-    body.Free;
+    RequestDoc := nil;
   end;
 end;
 
@@ -7021,20 +7022,18 @@ begin
   inherited;
 end;
 
-procedure TUPnP_SecurityPermission.SaveToXML(aBuffer: TUPnP_XMLStream);
+procedure TUPnP_SecurityPermission.SaveToXML(aBuffer: IXMLNode);
 {
   Writes the object's self description XML
   Status: FULLY TESTED
 }
 begin
-  with aBuffer do
+  with aBuffer.AddChild(_permission) do
   begin
-    WriteTagStart(_permission);
-    WriteTagAndValue(_UIName, fUIName);
-    WriteTagAndValue(_ACLentry, Format(_PermsFmt, [fACLentryName]));
-    WriteTagAndValue(_fullDescriptionURL, fFullDescriptionURL);
-    WriteTagAndValue(_shortDescription, fShortDescription);
-    WriteTagEnd(_permission);
+    AddChild(_UIName).Text := fUIName;
+    AddChild(_ACLentry).Text := Format(_PermsFmt, [fACLentryName]);
+    AddChild(_fullDescriptionURL).Text := fFullDescriptionURL;
+    AddChild(_shortDescription).Text := fShortDescription;
   end;
 end;
 
@@ -7418,6 +7417,8 @@ procedure TUPnP_SubscriptionItem.PublishEvents;
 var
   j: integer;
   lPublishPending: boolean;
+  XMLDoc : IXMLDocument;
+  list: IXMLNode;
 begin
   Assert(assigned(fRootDevice));
 
@@ -7456,17 +7457,19 @@ begin
       end;
 
       // write the GENA body
-      with XmlStream do
-      begin
-
+      XMLDoc := TXMLDocument.Create ( nil );
+      try
+        // get the XML body text for the Service
+        XMLDoc.Active := true;
         if not fIsOldWinMeVersion then
         begin
           // WinMe does not accept the XML version header
-          WriteTagStart(XML_VerString);
+          XMLDoc.Version := XMLDoc_Version;
+          XMLDoc.Encoding := XMLDoc_Encoding;
         end;
 
-        WriteTagStartAndAttributes(_epropertyset, [_epropertysetXmlNS]);
-
+        list := XMLDoc.AddChild(_epropertyset);
+        list.Attributes[_attrXmlNS] := _epropertysetXmlNSValue;
         // send the state of all evented variables if the flag is set
         for j := 0 to pred(fVariables) do
         begin
@@ -7476,20 +7479,22 @@ begin
             begin
               if fSendEvents then
               begin
-                SaveEventToXML(XmlStream);
+                SaveEventToXML(list);
               end;
             end;
           end;
         end;
-
-        WriteTagEnd(_epropertyset);
-        WriteNewLine;
+        XMLDoc.XML.Add('');
 
         // for old Windows Me clients we have to append an extra \0
         if fIsOldWinMeVersion then
         begin
-          WriteValues([#0]);
+          XMLDoc.XML.Add(#0);
         end;
+        XmlStream.Position := 0;
+        XMLDoc.SaveToStream(XmlStream);
+      finally
+        XMLDoc := nil;
       end;
 
       // start to send the event

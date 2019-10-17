@@ -52,7 +52,8 @@ uses
   IdThread,
   IdUDPClient,
   IdURI,
-  UPnP_XmlStreamer;
+  XMLIntf,
+  XMLDoc;
 
 type
   // Forward declaration
@@ -75,7 +76,7 @@ type
     TUPnP_UDPRequestCallbackProc:
     Call back procedure for UDP requests to TUPnP_MulticastListener
   }
-  TUPnP_UDPRequestCallbackProc = procedure(aData: TStream; aBinding: TUPnP_IdSocketHandle) of object;
+  TUPnP_UDPRequestCallbackProc = procedure(aData: TIdBytes; aBinding: TUPnP_IdSocketHandle) of object;
 
   {
     TUPnP_MulticastListener:
@@ -86,7 +87,7 @@ type
     fOnLog: TUPnP_LoggingCallbackProc;
     fOnUDPRequest: TUPnP_UDPRequestCallbackProc;
     function GetBinding: TIdSocketHandle; override;
-    procedure DoIPMCastRead(AData: TStream; ABinding: TIdSocketHandle); override;
+    procedure DoIPMCastRead(const AData: TIdBytes; ABinding: TIdSocketHandle); override;
   public
     property OnUDPRequest: TUPnP_UDPRequestCallbackProc Read fOnUDPRequest Write fOnUDPRequest;
     property OnLog: TUPnP_LoggingCallbackProc Read fOnLog Write fOnLog;
@@ -113,8 +114,7 @@ type
   protected
     fOnLog: TUPnP_LoggingCallbackProc;
   public
-    procedure SendBuffer(AHost: string; const APort: integer;
-      const ABuffer: TIdBytes); override;
+    procedure SendBuffer(const AHost: string; const APort: TIdPort; const ABuffer : TIdBytes); override;
     property OnLog: TUPnP_LoggingCallbackProc Read fOnLog Write fOnLog;
   end;
 
@@ -156,11 +156,11 @@ type
     fOnLog: TUPnP_LoggingCallbackProc;
     fOnTCPRequest: TUPnP_TCPRequestCallbackProc;
     procedure SetOnTCPRequest(aOnTCPRequest: TUPnP_TCPRequestCallbackProc);
-    procedure DoOnLogString(ASender: TIdServerInterceptLogEvent; AText: string);
+    procedure DoOnLogString(ASender: TIdServerInterceptLogEvent; const AText: string);
     procedure DoOnCommandXXX(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo;
       AResponseInfo: TIdHTTPResponseInfo);
     procedure SetOnLog(aOnLog: TUPnP_LoggingCallbackProc);
-    procedure CreateXMLPostStream(AContext: TIdContext; var vPostStream: TStream);
+    procedure CreateXMLPostStream(AContext: TIdContext; AHeaders: TIdHeaderList; var vPostStream: TStream);
     procedure SetActive(AValue: Boolean); override;
   public
     destructor Destroy; override;
@@ -237,6 +237,7 @@ type
     function GetSearchTarget: string;
   public
     constructor Create(aData: TStream); overload;
+    constructor Create(aData: TIdBytes); overload;
     function IsValidSearchRequest: boolean;
     property MxDelay: integer Read GetMxDelay;
     property SearchTarget: string Read GetSearchTarget;
@@ -301,7 +302,7 @@ type
     fRequest: TUPnP_IdHTTPRequestInfo;
     fSoapActionHeader: string;
     fSOAPAction: string;
-    function GetXmlStream: TUPnP_XMLStream;
+    function GetXmlStream: TStream;
     function GetSID: string;
     function GetNT: string;
     function GetCallback: string;
@@ -312,9 +313,8 @@ type
     function GetSoapActionHeader: string;
   public
     constructor Create(aRequest: TUPnP_IdHTTPRequestInfo);
-    function HasXmlStream: boolean;
     property Request: TUPnP_IdHTTPRequestInfo Read fRequest;
-    property XmlStream: TUPnP_XMLStream Read GetXmlStream;
+    property XmlStream: TStream Read GetXmlStream;
     property SID: string Read GetSID;
     property NT: string Read GetNT;
     property Callback: string Read GetCallback;
@@ -333,15 +333,15 @@ type
   TUPnP_HTTPServerResponseWrapper = class
   protected
     fResponse: TUPnP_IdHTTPResponseInfo;
-    fXmlStream: TUPnP_XMLStream;
-    function GetXmlStream: TUPnP_XMLStream;
+    fXmlStream: TStream;
+    function GetXmlStream: TStream;
     procedure SetSID(aSID: string);
     procedure SetTimeOut(aTimeOut: integer);
     procedure SetExt(aEXT: boolean);
   public
     constructor Create(aResponse: TUPnP_IdHTTPResponseInfo);
     property Response: TUPnP_IdHTTPResponseInfo Read fResponse;
-    property XmlStream: TUPnP_XMLStream Read GetXmlStream;
+    property XmlStream: TStream Read GetXmlStream;
     property SID: string Write SetSID;
     property TimeOut: integer Write SetTimeOut;
     property EXT: boolean Write SetExt;
@@ -367,7 +367,7 @@ type
     fIdLogEvent: TIdLogEvent;
     fOnLog: TUPnP_LoggingCallbackProc;
     fSyncMessage: string;
-    fXmlStream: TUPnP_XMLStream;
+    fXmlStream: TStream;
     fURL: string;
     fSID: string;
     fSEQ: integer;
@@ -375,7 +375,7 @@ type
     fLock: TCriticalSection;
     fOnAfterExecute: TNotifyEvent;
     fTimeoutTime: TDateTime;
-    function GeXmlStream: TUPnP_XMLStream;
+    function GeXmlStream: TStream;
     procedure DoOnLogBytes(ASender: TIdConnectionIntercept; var ABuffer: TIdBytes);
     procedure SetOnLog(aOnLog: TUPnP_LoggingCallbackProc);
     procedure syncDoLogCallback;
@@ -386,7 +386,7 @@ type
     procedure Interrupt;
     function TimedOut: boolean;
     property OnLog: TUPnP_LoggingCallbackProc Read fOnLog Write SetOnLog;
-    property XmlStream: TUPnP_XMLStream Read GeXmlStream;
+    property XmlStream: TStream Read GeXmlStream;
     property SID: string Write fSID;
     property SEQ: integer Write fSEQ;
     property URL: string Write fURL;
@@ -508,7 +508,7 @@ constructor TUPnP_ByeByeNotification.Create;
     USN: *** SEE SPECICATION
 }
 begin
-  inherited;
+  inherited Create(TIdHeaderQuotingType.QuoteHTTP);
   FFoldLines      := False;
   Values[NTS_Hdr] := SsdpByeBye;
 end;
@@ -605,17 +605,18 @@ var
   strs: TStringList;
 begin
   Assert(assigned(aData));
-  Create;
+  Create(TIdHeaderQuotingType.QuoteHTTP);
   Sorted    := False;
   FoldLines := False;
   strs      := TStringList.Create;
   try
-    strs.LoadFromStream(aData);
+    strs.NameValueSeparator := ':';
+    strs.LoadFromStream(aData, Encoding.UTF8);
     AddStrings(strs);
+    fCommandLine := strs[0];
   finally
     strs.Free;
   end;
-  fCommandLine := Strings[0];
 end;
 
 function TUPnP_MSearchRequest.IsValidSearchRequest: boolean;
@@ -631,6 +632,20 @@ begin
     (Pos(SsdpDiscover, Values[MAN_Hdr]) <> 0) and
     (GetMxDelay > 0) and
     (GetSearchTarget <> '');
+end;
+
+constructor TUPnP_MSearchRequest.Create(aData: TIdBytes);
+var
+  stream: TMemoryStream;
+begin
+  stream:= TMemoryStream.Create;
+  try
+    stream.Write( aData[0], Length(aData) );
+    stream.Position := 0;
+    Create(stream);
+  finally
+    stream.Free;
+  end;
 end;
 
 function TUPnP_MSearchRequest.GetMxDelay: integer;
@@ -667,7 +682,7 @@ constructor TUPnP_MSearchResponse.Create;
     USN: *** SEE SPECICATION
 }
 begin
-  inherited;
+  inherited Create(TIdHeaderQuotingType.QuoteHTTP);
   Sorted    := False;
   FoldLines := False;
   Values[Date_Hdr] := DateTimeGMTToHttpStr(NowGMT);
@@ -722,8 +737,7 @@ begin
   Values[USN_Hdr] := aString;
 end;
 
-procedure TUPnP_UnicastSender.SendBuffer(AHost: string; const APort: integer;
-  const ABuffer: TIdBytes);
+procedure TUPnP_UnicastSender.SendBuffer(const AHost: string; const APort: TIdPort; const ABuffer : TIdBytes);
 {
   Log the output before sending it
   Status:
@@ -768,8 +782,8 @@ begin
   // create the content stream and write its data
   tmp1 := Copy(aText, j + 4, MaxInt);
   fContentLength := length(tmp1);
-  fPostStream := TUPnP_XmlStream.Create;
-  TUPnP_XmlStream(fPostStream).WriteValues([tmp1]);
+  fPostStream := TStringStream.Create;
+  TStringStream(fPostStream).WriteString(tmp1);
 
   // parse the raw command line for Command
   i := Pos(' ', fRawHTTPCommand);
@@ -834,24 +848,13 @@ begin
   fRequest := aRequest;
 end;
 
-function TUPnP_HTTPServerRequestWrapper.HasXmlStream: boolean;
-{
-  Check if we have an Xml stream
-  Status:
-}
-begin
-  Assert(assigned(fRequest));
-  Result := (fRequest.PostStream is TUPnP_XMLStream);
-end;
-
-function TUPnP_HTTPServerRequestWrapper.GetXmlStream: TUPnP_XMLStream;
+function TUPnP_HTTPServerRequestWrapper.GetXmlStream: TStream;
 {
   Status:
 }
 begin
   Assert(assigned(fRequest));
-  Assert(HasXmlStream);
-  Result := TUPnP_XMLStream(fRequest.PostStream);
+  Result := fRequest.PostStream;
 end;
 
 function TUPnP_HTTPServerRequestWrapper.GetSID: string;
@@ -999,7 +1002,7 @@ begin
   fResponse := aResponse;
 end;
 
-function TUPnP_HTTPServerResponseWrapper.GetXmlStream: TUPnP_XMLStream;
+function TUPnP_HTTPServerResponseWrapper.GetXmlStream: TStream;
 {
   Create an Xml stream object
   Assign the Xml stream to -- to be sent -- content stream
@@ -1009,7 +1012,7 @@ begin
   Assert(assigned(fResponse));
   if not assigned(fXmlStream) then
   begin
-    fXmlStream := TUPnP_XMLStream.Create;
+    fXmlStream := TMemoryStream.Create;
     fResponse.ContentStream := fXmlStream;
     fResponse.ContentType := text_xml_utf8;
     fResponse.FreeContentStream := True;
@@ -1068,21 +1071,14 @@ begin
   end;
 end;
 
-procedure TUPnP_MulticastListener.DoIPMCastRead(aData: TStream;
-  aBinding: TIdSocketHandle);
+procedure TUPnP_MulticastListener.DoIPMCastRead(const AData: TIdBytes; ABinding: TIdSocketHandle);
 var
   ss:   string;
-  p, s: int64;
 begin
   Assert(assigned(aData));
   if assigned(fOnLog) then
   begin
-    s := aData.Size;
-    p := aData.Position;
-    SetLength(ss, s);
-    aData.Position := 0;
-    aData.Read(ss[1], s);
-    aData.Position := p;
+    ss := BytesToString( AData, 0, Length(aData) );
     fOnLog(ClassName, ss);
   end;
   if Assigned(fOnUDPRequest) then
@@ -1101,7 +1097,7 @@ function TUPnP_MulticastListener.GetBinding: TIdSocketHandle;
 }
 var
   i: integer;
-  Multicast: TMultiCast;
+  Multicast: TIdIPMreq; // TMultiCast;
 begin
   if not Assigned(FCurrentBinding) then
   begin
@@ -1133,8 +1129,11 @@ begin
       GBSDStack.TranslateStringToTInAddr(FMulticastGroup,
         Multicast.IMRMultiAddr, Id_IPv4);
       Multicast.IMRInterface.S_addr := Id_INADDR_ANY;
-      GBSDStack.SetSocketOption(Bindings[i].Handle, Id_IPPROTO_IP,
-        Id_IP_ADD_MEMBERSHIP, PChar(@Multicast), SizeOf(Multicast));
+      GBSDStack.SetSocketOption(Bindings[i].Handle,
+        Id_IPPROTO_IP,
+        Id_IP_ADD_MEMBERSHIP,
+        Multicast,
+        SizeOf(Multicast));
     end;
     FCurrentBinding := Bindings[0];
     FListenerThread := TIdIPMCastListenerThread.Create(Self);
@@ -1159,7 +1158,7 @@ end;
 function TUPnP_MulticastSender.GetBinding: TIdSocketHandle;
 {$define AFG_NEW_CODE}
 var
-  Multicast: TMultiCast;
+  Multicast: TIdIPMreq;
 begin
   if not Assigned(FBinding) then
   begin
@@ -1184,8 +1183,8 @@ begin
     GBSDStack.TranslateStringToTInAddr(FMulticastGroup, Multicast.IMRMultiAddr, Id_IPv4);
     Multicast.IMRInterface.S_addr := Id_INADDR_ANY;
     GBSDStack.SetSocketOption(FBinding.Handle, Id_IPPROTO_IP,
-      Id_IP_ADD_MEMBERSHIP, PChar(@Multicast), SizeOf(Multicast));
-    SetTTLOption(FBinding, FTimeToLive);
+      Id_IP_ADD_MEMBERSHIP, Multicast, SizeOf(Multicast));
+    FBinding.SetMulticastTTL(FTimeToLive); // SetTTLOption(FBinding, FTimeToLive);
     Loopback := True;
   end;
   Result := FBinding;
@@ -1260,8 +1259,7 @@ begin
   end;
 end;
 
-procedure TUPnP_HTTPServer.DoOnLogString(ASender: TIdServerInterceptLogEvent;
-  AText: string);
+procedure TUPnP_HTTPServer.DoOnLogString(ASender: TIdServerInterceptLogEvent; const AText: string);
 {
   Handler for logging callbacks
   Status:
@@ -1273,14 +1271,13 @@ begin
   end;
 end;
 
-procedure TUPnP_HTTPServer.CreateXMLPostStream(AContext: TIdContext;
-  var vPostStream: TStream);
+procedure TUPnP_HTTPServer.CreateXMLPostStream(AContext: TIdContext; AHeaders: TIdHeaderList; var vPostStream: TStream);
 {
   Callback that creates a new XML stream
   Status:
 }
 begin
-  vPostStream := TUPnP_XMLStream.Create;
+  vPostStream := TMemoryStream.Create;
 end;
 
 procedure TUPnP_HTTPServer.SetActive(AValue: Boolean);
@@ -1554,7 +1551,7 @@ begin
   end;
 end;
 
-function TUPnP_SubscriptionClientThread.GeXmlStream: TUPnP_XMLStream;
+function TUPnP_SubscriptionClientThread.GeXmlStream: TStream;
 {
   Create the XML payload
   Status:
@@ -1562,7 +1559,7 @@ function TUPnP_SubscriptionClientThread.GeXmlStream: TUPnP_XMLStream;
 begin
   if not assigned(fXmlStream) then
   begin
-    fXmlStream := TUPnP_XMLStream.Create;
+    fXmlStream := TMemoryStream.Create;
   end;
   Result := fXmlStream;
 end;
@@ -1573,14 +1570,14 @@ procedure TUPnP_IdHTTP.Notify(FetchResponse: boolean);
   Status:
 }
 var
-  lStrm: TIdStreamVCL;
+  // lStrm: TIdStreamVCL;
   i: integer;
   lHdr: string;
 begin
   try
     // a straight HTTP/1.1 POST is closest to what we are actually doing...
     ProtocolVersion := pv1_1;
-    Request.Method := hmPost;
+    Request.Method := Id_HTTPMethodPost;
     HandleRedirects := False;
 
     // prepare the request headers
@@ -1618,12 +1615,13 @@ begin
       IOHandler.WriteLn('');
 
       // write the source stream
-      lStrm := TIdStreamVCL.Create(Request.Source);
-      try
-        IOHandler.Write(lStrm, 0, false);
-      finally
-        FreeAndNil(lStrm);
-      end;
+//      lStrm := TMemoryStream.Create(Request.Source);
+//      try
+//        IOHandler.Write(lStrm, 0, false);
+//      finally
+//        FreeAndNil(lStrm);
+//      end;
+      IOHandler.Write(Request.Source, 0, false);
 
       // clean up
       IOHandler.WriteBufferClose;
@@ -1660,7 +1658,7 @@ begin
         end;
 
         // read the response content
-        ReadResult(Response);
+        ReadResult(Request, Response);
 
       except
         // a graceful disconnect is basically Ok here, so swallow it ...

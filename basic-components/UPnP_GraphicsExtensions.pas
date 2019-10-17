@@ -27,7 +27,7 @@ unit UPnP_GraphicsExtensions;
 interface
 
 uses
-  GIFImage,
+  GifImg, // GIFImage,
   Graphics,
   JPEG,
   PngImage,

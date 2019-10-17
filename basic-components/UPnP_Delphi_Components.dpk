@@ -1,6 +1,8 @@
 package UPnP_Delphi_Components;
 
 {$R *.res}
+{$R *.otares}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
 {$ALIGN 8}
 {$ASSERTIONS ON}
 {$BOOLEVAL OFF}
@@ -11,27 +13,29 @@ package UPnP_Delphi_Components;
 {$LOCALSYMBOLS ON}
 {$LONGSTRINGS ON}
 {$OPENSTRINGS ON}
-{$OPTIMIZATION ON}
+{$OPTIMIZATION OFF}
 {$OVERFLOWCHECKS OFF}
 {$RANGECHECKS OFF}
 {$REFERENCEINFO ON}
 {$SAFEDIVIDE OFF}
-{$STACKFRAMES OFF}
+{$STACKFRAMES ON}
 {$TYPEDADDRESS OFF}
 {$VARSTRINGCHECKS ON}
 {$WRITEABLECONST OFF}
 {$MINENUMSIZE 1}
 {$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
 {$DESCRIPTION 'UPnP Components'}
 {$IMPLICITBUILD OFF}
 
 requires
   rtl,
   vcl,
-  vcljpg,
-  IndyCore70,
-  IndySystem70,
-  IndyProtocols70;
+  vclimg,
+  IndyCore,
+  IndySystem,
+  IndyProtocols;
 
 contains
   UPnP_Components in 'UPnP_Components.pas',
@@ -39,10 +43,10 @@ contains
   UPnP_IndyExtensions in 'UPnP_IndyExtensions.pas',
   UPnP_Strings in 'UPnP_Strings.pas',
   UPnP_XmlStreamer in 'UPnP_XmlStreamer.pas',
-  GIFImage in '..\..\Downloaded Components\Graphics Extensions\GifImage\GIFImage.pas',
-  pngimage in '..\..\Downloaded Components\Graphics Extensions\PngImage\pngimage.pas',
-  pngzlib in '..\..\Downloaded Components\Graphics Extensions\PngImage\pngzlib.pas',
-  pnglang in '..\..\Downloaded Components\Graphics Extensions\PngImage\pnglang.pas',
+//  GIFImage in 'C:\Downloaded Components\Graphics Extensions\GifImage\GIFImage.pas',
+//  pngimage in 'C:\Downloaded Components\Graphics Extensions\PngImage\pngimage.pas',
+//  pngzlib in 'C:\Downloaded Components\Graphics Extensions\PngImage\pngzlib.pas',
+//  pnglang in 'C:\Downloaded Components\Graphics Extensions\PngImage\pnglang.pas',
   UPnP_GraphicsExtensions in 'UPnP_GraphicsExtensions.pas',
   UPnP_TreeView in 'UPnP_TreeView.pas';
 
