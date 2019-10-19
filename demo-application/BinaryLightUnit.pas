@@ -21,10 +21,10 @@ interface
 uses
   ActnCtrls, ActnList, ActnMan,
   ActnMenus, Classes, ComCtrls, Controls, Dialogs, ExtCtrls, Forms,
-  GIFImage, Graphics, ImgList, Menus, Messages, StdCtrls, StdStyleActnCtrls,
+  GIFImg, Graphics, ImgList, Menus, Messages, StdCtrls, StdStyleActnCtrls,
   SysUtils, ToolWin, UPnP_Components, UPnP_DeviceSecurity, UPnP_IndyExtensions,
   UPnP_TreeView, Variants, Windows, XPMan,
-  XPStyleActnCtrls;
+  XPStyleActnCtrls, System.Actions;
 
 type
   TBinaryLightForm = class(TForm)

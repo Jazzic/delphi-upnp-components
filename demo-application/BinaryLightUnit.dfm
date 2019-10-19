@@ -1,9 +1,9 @@
 object BinaryLightForm: TBinaryLightForm
   Left = 308
   Top = 115
-  Width = 922
-  Height = 728
   Caption = 'Binary Light Demo'
+  ClientHeight = 689
+  ClientWidth = 906
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -17,28 +17,41 @@ object BinaryLightForm: TBinaryLightForm
   TextHeight = 13
   object PageControl1: TPageControl
     Left = 0
-    Top = 24
-    Width = 914
-    Height = 670
+    Top = 23
+    Width = 906
+    Height = 666
     ActivePage = ObjectTree
     Align = alClient
     TabHeight = 24
     TabOrder = 0
+    ExplicitTop = 24
+    ExplicitWidth = 914
+    ExplicitHeight = 670
     object ObjectTree: TTabSheet
       Caption = 'UPnP Object Tree'
+      ExplicitLeft = 0
+      ExplicitTop = 0
+      ExplicitWidth = 0
+      ExplicitHeight = 0
       object UPnP_TreeView1: TUPnP_TreeView
         Left = 0
         Top = 0
-        Width = 906
-        Height = 636
+        Width = 898
+        Height = 632
         Align = alClient
         AutoExpand = True
         Indent = 19
         TabOrder = 0
+        ExplicitWidth = 906
+        ExplicitHeight = 636
       end
     end
     object CommsLog: TTabSheet
       Caption = 'Communications Log'
+      ExplicitLeft = 0
+      ExplicitTop = 0
+      ExplicitWidth = 0
+      ExplicitHeight = 0
       object Memo1: TMemo
         Left = 0
         Top = 0
@@ -59,20 +72,21 @@ object BinaryLightForm: TBinaryLightForm
   object ActionMainMenuBar1: TActionMainMenuBar
     Left = 0
     Top = 0
-    Width = 914
-    Height = 24
+    Width = 906
+    Height = 23
     UseSystemFont = False
     ActionManager = ActionManager1
     Caption = 'ActionMainMenuBar1'
-    ColorMap.HighlightColor = 15660791
+    ColorMap.HighlightColor = clWhite
     ColorMap.BtnSelectedColor = clBtnFace
-    ColorMap.UnusedColor = 15660791
+    ColorMap.UnusedColor = clWhite
     Font.Charset = DEFAULT_CHARSET
     Font.Color = clWindowText
     Font.Height = -11
     Font.Name = 'Tahoma'
     Font.Style = []
     Spacing = 0
+    ExplicitHeight = 24
   end
   object XPManifest1: TXPManifest
     Left = 28
@@ -320,6 +334,7 @@ object BinaryLightForm: TBinaryLightForm
               end
               item
                 Action = ResetAction
+                Caption = '&Reset'
               end>
             Caption = '&Device'
           end

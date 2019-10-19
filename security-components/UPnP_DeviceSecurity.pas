@@ -42,7 +42,7 @@
   Note: Make the following define to use the Microsoft Crypto API
         instead of 3rd party libraries
 }
-{$define UseMSWindowsXPCryptoAPI}
+//{$define UseMSWindowsXPCryptoAPI}
 
 unit UPnP_DeviceSecurity;
 
@@ -62,9 +62,10 @@ uses
   SysUtils,
   UPnP_Components,
   UPnP_IndyExtensions,
-  UPnP_XmlStreamer,
   WCrypt2,
-  Windows;
+  Windows,
+  XMLIntf,
+  XMLDoc;
 
 {$ifdef UseMSWindowsXPCryptoAPI}
 const
@@ -314,16 +315,16 @@ type
       aPermissionCollection: TUPnP_SecurityPermissionCollection;
       aCheckDelegation: boolean): boolean;
   public
-    constructor CreateFromAclXml(aBuffer: TUPnP_XMLStream);
+    constructor CreateFromAclXml(aBuffer: IXMLNode);
     constructor CreateFromStream(aReader: TReader);
     constructor CreateFromHash(aHash: string);
     constructor CreateFromCertXML(aDevSec: TUPnP_DeviceSecurity;
-      aBuffer: TUPnP_XMLStream);
+      aBuffer: IXMLNode);
     constructor Create;
     destructor Destroy; override;
-    procedure SaveToCertXML(aBuffer: TUPnP_XMLStream;
+    procedure SaveToCertXML(aBuffer: IXMLDocument;
       anIssuerRSAKey: TUPnP_PrivateKey; aDeviceHash: string);
-    procedure SaveToXML(aBuffer: TUPnP_XMLStream);
+    procedure SaveToXML(aBuffer: IXMLNode);
     procedure SaveToStream(aWriter: TWriter);
   end;
 
@@ -337,7 +338,7 @@ type
   public
     constructor CreateFromStream(aReader: TReader);
     procedure SaveToStream(aWriter: TWriter);
-    procedure SaveToXML(aBuffer: TUPnP_XMLStream);
+    procedure SaveToXML(aBuffer: IXMLNode);
     procedure DeleteExpiredEntries;
     property Entry[aIndex: integer]: TUPnP_ACL_Entry Read fGetEntry;
   end;
@@ -365,9 +366,9 @@ type
     procedure NotInitialisedException(aMethod: string);
     function ReverseString(aString: string): string;
   public
-    constructor CreateFromXML(aDevSec: TUPnP_DeviceSecurity; aBuffer: TUPnP_XMLStream);
+    constructor CreateFromXML(aDevSec: TUPnP_DeviceSecurity; aBuffer: IXMLNode);
     destructor Destroy; override;
-    procedure SaveToXML(aBuffer: TUPnP_XMLStream);
+    procedure SaveToXML(aBuffer: IXMLNode);
     function AsString: string;
     function Encrypt(aPlainText: string): string;
     function Verify(aPlainText, aSignature: string): boolean;
@@ -439,7 +440,7 @@ type
 {$endif}
   public
     constructor CreateFromStream(aCryptoProvider: HCRYPTPROV; aReader: TReader);
-    constructor CreateFromXML(aCryptoProvider: HCRYPTPROV; aBuffer: TUPnP_XMLStream);
+    constructor CreateFromXML(aCryptoProvider: HCRYPTPROV; aBuffer: IXMLNode);
     constructor CreateFromEncipheredBulkKey(aCryptoProvider: HCRYPTPROV;
       aPrivateKey: TUPnP_PrivateKey; aCipherText: string);
     constructor CreateRandom(aCryptoProvider: HCRYPTPROV);
@@ -447,7 +448,7 @@ type
       aPublicKey: TUPnP_RSA_Key; out aCipherText: string);
     destructor Destroy; override;
     procedure SaveToStream(aWriter: TWriter);
-    procedure SaveToXML(aBuffer: TUPnP_XMLStream);
+    procedure SaveToXML(aBuffer: IXMLNode);
     function Encrypt(aPlainText: string): string;
     function Decrypt(aCipherText: string): string;
     procedure NewRandomIV;
@@ -474,10 +475,10 @@ type
     constructor CreateFromStream(aDevSecService: TUPnP_DeviceSecurity;
       aReader: TReader); virtual;
     constructor CreateFromXML(aDevSecService: TUPnP_DeviceSecurity;
-      aBuffer: TUPnP_XMLStream); virtual;
+      aBuffer: IXMLNode); virtual;
     destructor Destroy; override;
     procedure SaveToStream(aWriter: TWriter);
-    procedure SaveToXML(aBuffer: TUPnP_XMLStream);
+    procedure SaveToXML(aBuffer: IXMLNode);
     property Key[aKeyType: TUPnP_KeyType;
       aKeyDirection: TUPnP_KeyDirection]: TUPnP_SessionKey Read GetKey;
     property Owner: string Read fOwnerPKHashB64;
@@ -617,7 +618,7 @@ type
       var ErrorCode, ErrorMessage: string): boolean;
 
     // dsig checking functions
-    function fGetDSigParameters(aRequest: TUPnP_XMLStream): TUPnP_AuthorisationResult;
+    function fGetDSigParameters(aRequest: IXMLNode): TUPnP_AuthorisationResult;
     function fGetFullControlURL(aCaller: TUPnP_Component): string;
     function fVerifyPermissions(aCaller: TUPNP_Component;
       anOwnerPKHash: string): boolean;
@@ -648,9 +649,9 @@ type
     destructor Destroy; override;
     procedure Loaded; override;
     function CheckDsigAuthorisation(aCaller: TUPnP_Component;
-      aRequest: TUPnP_XMLStream): TUPnP_AuthorisationResult; override;
-    procedure Sign(aCaller: TUPnP_Component; aBody: TUPnP_XMLStream;
-      out aSecurityInfo: TUPnP_XMLStream); override;
+      aRequest: IXMLNode): TUPnP_AuthorisationResult; override;
+    procedure Sign(aCaller: TUPnP_Component; aBody: IXMLNode;
+      aSecurityInfo: IXMLNode); override;
     property OnGenerateKeyStart: TNotifyEvent
       Read fOnGenerateKeyStart Write fOnGenerateKeyStart;
     property OnGenerateKeyDone: TNotifyEvent
@@ -903,39 +904,37 @@ function DoGetPermissions(aTagValue: string; out aPermissions: string): boolean;
   Status: FULLY TESTED
 }
 var
-  aBuffer: TUPnP_XMLStream;
+  aBuffer: IXMLDocument;
+  node: IXMLNode;
   perms:   TStringList;
 begin
   Result  := True;
-  aBuffer := TUPnP_XMLStream.Create;
+  aBuffer := TXMLDocument.Create(nil);
   perms   := TStringList.Create;
   try
-    with aBuffer do
+    aBuffer.XML.Text := aTagValue;
+    node := aBuffer.Node.ChildNodes.First;
+
+    // iterate through each entry in the 'access' section
+    while assigned(node) do
     begin
-      WriteValues([aTagValue]);
-      ResetParser;
+      // if it contains the 'all' tag => this subject has all permissions
+      if node.NodeName = _all then
+      begin
+        perms.Text := _allStar;
+      end
+      else
+      begin
+        //otherwise add the permission to the list
+        perms.Add(node.NodeName);
+      end;
 
-      // iterate through each entry in the 'access' section
-      repeat
-
-        // if it contains the 'all' tag => this subject has all permissions
-        if TagName = _all then
-        begin
-          perms.Text := _allStar;
-        end
-        else
-        begin
-          //otherwise add the permission to the list
-          perms.Add(TagName);
-        end;
-
-        // get the next tag
-        NextTag;
-      until EOF;
+      // get the next tag
+      node := node.NextSibling;
     end;
 
   finally
-    aBuffer.Free;
+    aBuffer := nil;
     aPermissions := perms.Text;
     perms.Free;
   end;
@@ -947,32 +946,31 @@ function DoGetHash(aTagValue: string; out aHash: string): boolean;
   Status: FULLY TESTED
 }
 var
-  aBuffer: TUPnP_XMLStream;
+  aBuffer: IXMLDocument;
+  node: IXMLNode;
 begin
   Result  := False;
-  aBuffer := TUPnP_XMLStream.Create;
+  aBuffer := TXMLDocument.Create(nil);
   try
-    with aBuffer do
+    aBuffer.XML.Text := aTagValue;
+    aBuffer.Active := true;
+    node := aBuffer.Node;
+
+    // get the hash algorithm
+    if (node.NodeName = _algorithm) and (node.Text = _shaUC) then
     begin
-      WriteValues([aTagValue]);
-      ResetParser;
+      node := node.NextSibling;
 
-      // get the hash algorithm
-      if (TagName = _algorithm) and (TagValue = _shaUC) then
+      // get the hash value
+      if node.NodeName = _value then
       begin
-        NextTag;
-
-        // get the hash value
-        if TagName = _value then
-        begin
-          aHash  := TagValue;
-          Result := True;
-        end;
+        aHash  := node.Text;
+        Result := True;
       end;
     end;
 
   finally
-    aBuffer.Free;
+    aBuffer := nil;
   end;
 end;
 
@@ -983,36 +981,35 @@ function DoGetValidity(aTagValue: string;
   Status: FULLY TESTED
 }
 var
-  aBuffer: TUPnP_XMLStream;
+  aBuffer: IXMLDocument;
+  node: IXMLNode;
 begin
   Result := True;
   // preset the validity dates to empty
   aValidityStart := '';
   aValidityEnd := '';
 
-  aBuffer := TUPnP_XMLStream.Create;
+  aBuffer := TXMLDocument.Create(nil);
   try
-    with aBuffer do
+    aBuffer.XML.Text := aTagValue;
+    aBuffer.Active := true;
+    node := aBuffer.Node;
+
+    // start validity date
+    if node.NodeName = _notbefore then
     begin
-      WriteValues([aTagValue]);
-      ResetParser;
+      aValidityStart := node.Text;
+      node := node.NextSibling;
+    end;
 
-      // start validity date
-      if TagName = _notbefore then
-      begin
-        aValidityStart := TagValue;
-        NextTag;
-      end;
-
-      // end validity date
-      if TagName = _notafter then
-      begin
-        aValidityEnd := TagValue;
-        NextTag;
-      end;
+    // end validity date
+    if node.NodeName = _notafter then
+    begin
+      aValidityEnd := node.Text;
+      node := node.NextSibling;
     end;
   finally
-    aBuffer.Free;
+    aBuffer := nil;
   end;
 end;
 
@@ -1439,7 +1436,7 @@ begin
   inherited;
 end;
 
-function TUPnP_DeviceSecurity.fGetDSigParameters(aRequest: TUPnP_XMLStream):
+function TUPnP_DeviceSecurity.fGetDSigParameters(aRequest: IXMLNode):
 TUPnP_AuthorisationResult;
 {
   Parse the xml request and collect all the dsig data from it
@@ -1449,6 +1446,7 @@ TUPnP_AuthorisationResult;
 }
 var
   lBodyCount, lFreshnessCount, lSignedInfoCount: integer;
+  node: IXMLNode;
 begin
   Result     := auth_Accepted;
   lBodyCount := 0;
@@ -1457,36 +1455,30 @@ begin
 
   with aRequest do
   begin
-
-    // reset the parser
-    ResetParser;
-
     // if either the header tag or the security info tag are missing then exit
-    if not GotoTagName(_Header) then
+    if not assigned(ChildNodes.FindNode(_Header)) then
     begin
       exit;
     end;
-    if not GotoTagName(_SecurityInfo) then
+    if not assigned(ChildNodes.FindNode(_SecurityInfo)) then
     begin
       exit;
     end;
 
     // scan the whole file
-    while not EOF do
+    node := ChildNodes.First;
+    while assigned(node) do
     begin
-
-      // get the next tag
-      NextTag;
-
       // check if the tag has the MustUnderstand attribute
-      if TagAttributeValue[_mustUnderstand] = '1' then
+      if node.Attributes[_mustUnderstand] = '1' then
       begin
         Result := auth_MalformedSoap;
+        node := node.NextSibling;
         continue;
       end;
 
       // look for a tag with the Freshness attribute
-      if TagAttributeValue[_Id] = _Freshness then
+      if node.Attributes[_Id] = _Freshness then
       begin
 
         // increment the tag count
@@ -1499,79 +1491,77 @@ begin
         end;
 
         // get the freshness digest tag
-        if TagName = _Freshness then
+        if node.NodeName = _Freshness then
         begin
           // add the digest to the parameter list
           fSoapDSigParameters.Add(Format(_equals,
             [_Freshness, BinaryToBase64(
-            TSecUtils.StringToHash(FullTagValue, fCryptoProvider))]));
+            TSecUtils.StringToHash(node.XML, fCryptoProvider))]));
         end
         else
         begin
           Result := auth_MalformedSoap;
         end;
-
+        node := node.NextSibling;
         continue;
       end;
 
       // get the LifeTimeSequenceBase tag
-      if TagName = _LifeTimeSequenceBase then
+      if node.NodeName = _LifeTimeSequenceBase then
       begin
-
         // add it to the parameter list
-        fSoapDSigParameters.Add(Format(_equals, [TagName, TagValue]));
+        fSoapDSigParameters.Add(Format(_equals, [node.NodeName, node.Text]));
+        node := node.NextSibling;
         continue;
       end;
 
       // get the SequenceBase tag
-      if TagName = _SequenceBase then
+      if node.NodeName = _SequenceBase then
       begin
-
         // add it to the parameter list
-        fSoapDSigParameters.Add(Format(_equals, [TagName, TagValue]));
+        fSoapDSigParameters.Add(Format(_equals, [node.NodeName, node.Text]));
+        node := node.NextSibling;
         continue;
       end;
 
       // get the SequenceNumber tag
-      if TagName = _SequenceNumber then
+      if node.NodeName = _SequenceNumber then
       begin
-
         // add it to the parameter list
-        fSoapDSigParameters.Add(Format(_equals, [TagName, TagValue]));
+        fSoapDSigParameters.Add(Format(_equals, [node.NodeName, node.Text]));
+        node := node.NextSibling;
         continue;
       end;
 
       // get the ControlURL tag
-      if TagName = _ControlURL then
+      if node.NodeName = _ControlURL then
       begin
-
         // add it to the parameter list
-        fSoapDSigParameters.Add(Format(_equals, [TagName, TagValue]));
+        fSoapDSigParameters.Add(Format(_equals, [node.NodeName, node.Text]));
+        node := node.NextSibling;
         continue;
       end;
 
       // get any transported certificates
-      if TagName = _UPnPData then
+      if node.NodeName = _UPnPData then
       begin
-
         // add it to the parameter list
-        fSoapDSigParameters.Add(Format(_equals, [TagName, TagValue]));
+        fSoapDSigParameters.Add(Format(_equals, [node.NodeName, node.Text]));
+        node := node.NextSibling;
         continue;
       end;
 
       // get the Signature tag in its entirety
-      if TagName = _dsSignature then
+      if node.NodeName = _dsSignature then
       begin
-
         // add it to the parameter list
-        fSoapDSigParameters.Add(Format(_equals, [TagName, FullTagValue]));
+        fSoapDSigParameters.Add(Format(_equals, [node.NodeName, node.XML]));
         continue;
       end;
 
       // look for a SignedInfo tag
-      if TagName = _dsSignedInfo then
+      if node.NodeName = _dsSignedInfo then
       begin
-
         // increment the tag count
         Inc(lSignedInfoCount);
 
@@ -1585,7 +1575,7 @@ begin
       end;
 
       // look for a tag with the Body attribute
-      if TagAttributeValue[_Id] = _Body then
+      if Attributes[_Id] = _Body then
       begin
 
         // increment the tag count
@@ -1598,12 +1588,12 @@ begin
         end;
 
         // get the body digest
-        if TagName = _Body then
+        if node.NodeName = _Body then
         begin
           // add it to the parameter list
           fSoapDSigParameters.Add(Format(_equals,
             [_Body, BinaryToBase64(
-            TSecUtils.StringToHash(FullTagValue, fCryptoProvider))]));
+            TSecUtils.StringToHash(node.XML, fCryptoProvider))]));
         end
         else
         begin
@@ -1618,7 +1608,7 @@ begin
 end;
 
 function TUPnP_DeviceSecurity.CheckDsigAuthorisation(aCaller: TUPnP_Component;
-  aRequest: TUPnP_XMLStream): TUPnP_AuthorisationResult;
+  aRequest: IXMLNode): TUPnP_AuthorisationResult;
 {
   Check the xml dsig authorisation and permissions etc.
   Status: FULLY TESTED
@@ -1958,27 +1948,25 @@ begin
 end;
 
 procedure TUPnP_DeviceSecurity.Sign(aCaller: TUPnP_Component;
-  aBody: TUPnP_XMLStream; out aSecurityInfo: TUPnP_XMLStream);
+  aBody: IXMLNode; aSecurityInfo: IXMLNode);
 {
   Create the signature
   Status: FULLY TESTED
 }
 var
-  aWorkingBuf:  TUPnP_XMLStream;
+  aWorkingBuf:     IXMLDocument;
   freshnessDigest: string;
-  bodyDigest:   string;
-  signatureValue: string;
-  session:      TUPnP_Session;
-  sigDirection: TUPnP_KeyDirection;
+  bodyDigest:      string;
+  signatureValue:  string;
+  session:         TUPnP_Session;
+  sigDirection:    TUPnP_KeyDirection;
+  secNode: IXMLNode;
 begin
   // create some buffers
-  aSecurityInfo := TUPnP_XMLStream.Create;
-  aWorkingBuf   := TUPnP_XMLStream.Create;
+  aWorkingBuf   := TXMLDocument.Create(nil);
   try
-
     // check if there is a valid parameter list
     if fSoapDSigParameters.Count > 0 then
-
       // if so, then try to look up the respective session key; returns nil if none found
     begin
       session := fSessions.Session[StrToIntDef(
@@ -1993,141 +1981,123 @@ begin
     // use the working buffer
     with aWorkingBuf do
     begin
-
       // if we have a valid session
       if session <> nil then
       begin
-
         // then create a session key freshness block
-        WriteTagStartAndAttributes(_Freshness, [_FreshnessAttrs]);
-        WriteTagAndValue(_SequenceBase, session.fSequenceBase);
-        WriteTagAndValue(_SequenceNumber, IntToStr(session.fDeviceSequenceNumber));
-        WriteTagEnd(_Freshness);
-
+        with AddChild(_Freshness) do
+        begin
+          Attributes[_attrXmlNS] := _FreshnessAttrsValue;
+          AddChild(_SequenceBase).Text := session.fSequenceBase;
+          AddChild(_SequenceNumber).Text := IntToStr(session.fDeviceSequenceNumber);
+        end;
         // we have "used" this sequence number, so bump it in preparation for the next call
         Inc(session.fDeviceSequenceNumber);
       end
       else
       begin
         // otherwise create a PK freshness block
-        WriteTagStartAndAttributes(_Freshness, [_FreshnessAttrs]);
-        WriteTagAndValue(_LifeTimeSequenceBase, fLifetimeSequenceBase.Value);
-        WriteTagEnd(_Freshness);
+        with AddChild(_Freshness) do
+        begin
+          Attributes[_attrXmlNS] := _FreshnessAttrsValue;
+          AddChild(_LifeTimeSequenceBase).Text := fLifetimeSequenceBase.Value;
+        end;
 
         // we have "used" this lifetime sequence base,
         //  so bump it in preparation for the next call
         fLifetimeSequenceBase.fValue := fRandomString;
       end;
 
-      // reset the parser
-      ResetParser;
-
       // and get the digest of the newly created freshness block
       freshnessDigest := BinaryToBase64(
-        TSecUtils.StringToHash(FullTagValue, fCryptoProvider));
+        TSecUtils.StringToHash(XML.Text, fCryptoProvider));
     end;
 
     // use the security info buffer
-    with aSecurityInfo do
+    secNode := aSecurityInfo.AddChild(_SecurityInfo);
+    // write the security info tag
+    secNode.Attributes[_attrXmlNS] := _DevSecAttrsValue;
+    // write the freshness block
+    if session <> nil then
     begin
-
-      // write the security info tag
-      WriteTagStartAndAttributes(_SecurityInfo, [_DevSecAttrs]);
-
-      // write the freshness block
-      if session <> nil then
-      begin
-        WriteStream(aWorkingBuf);
-      end;
+      secNode.ChildNodes.Add(aWorkingBuf.Node.CloneNode(true));
     end;
 
     // use the body info buffer
     with aBody do
     begin
-
-      // reset the parser
-      ResetParser;
-
       // get the digest of the body block
       bodyDigest := BinaryToBase64(
-        TSecUtils.StringToHash(FullTagValue, fCryptoProvider));
+        TSecUtils.StringToHash(OwnerDocument.XML.Text, fCryptoProvider));
     end;
 
     // use the working buffer
     with aWorkingBuf do
     begin
-
       // clear it
-      Clear;
+      ChildNodes.Clear;
 
       // create the signed info block
-      WriteTagStartAndAttributes(_dsSignedInfo, [_dsSignatureXmlNS]);
-
-      // write the canonicalization method in canonical form
-      WriteTagStartAndAttributes(_dsCanonicalMethod, [_dsCanonicalAlgorithm]);
-      WriteTagEnd(_dsCanonicalMethod);
-
-      // if we have a session then the signature method is hmac-sha1
-      if session <> nil then
+      with AddChild(_dsSignedInfo) do
       begin
-        // write in canonical form
-        WriteTagStartAndAttributes(_dsSignatureMethod, [_dsSignatureAlgorithm1]);
-        WriteTagEnd(_dsSignatureMethod);
-      end
-      else
-      begin
-        // otherwise we use rsa-sha1 (write in canonical form)
-        WriteTagStartAndAttributes(_dsSignatureMethod, [_dsSignatureAlgorithm2]);
-        WriteTagEnd(_dsSignatureMethod);
+        Attributes[_attrXmlNS]:= _dsSignatureXmlNSValue;
+
+        // write the canonicalization method in canonical form
+        AddChild(_dsCanonicalMethod).Attributes[_algorithmA] := _dsCanonicalAlgorithmValue;
+
+        // if we have a session then the signature method is hmac-sha1
+        if session <> nil then
+        begin
+          // write in canonical form
+          AddChild(_dsSignatureMethod).Attributes[_algorithmA] := _dsSignatureAlgorithm1Value;
+        end
+        else
+        begin
+          // otherwise we use rsa-sha1 (write in canonical form)
+          AddChild(_dsSignatureMethod).Attributes[_algorithmA] := _dsSignatureAlgorithm2Value;
+        end;
+
+        // write the body digest
+        with AddChild(_dsReference) do
+        begin
+          Attributes[_URI] := Format(_dsReferenceURIAttrValue, [_BodyReference]);
+
+          // write the transforms tag
+          with AddChild(_dsTransforms) do
+          begin
+            AddChild(_dsTransform).Attributes[_algorithmA] := _dsCanonicalAlgorithmValue;
+          end;
+
+          // write the digest method in canonical form
+          AddChild(_dsDigestMethod).Attributes[_algorithmA] := _dsDigestAlgorithmValue;
+
+          AddChild(_dsDigestValue).Text := bodyDigest;
+        end;
+
+        // if we have a session then write the sequence digest
+        if session <> nil then
+        begin
+          with AddChild(_dsReference) do
+          begin
+            Attributes[_URI] := Format(_dsReferenceURIAttrValue, [_FreshnessReference]);
+
+            // write the transforms tag
+            with AddChild(_dsTransforms) do
+            begin
+              AddChild(_dsTransform).Attributes[_algorithmA]:= _dsCanonicalAlgorithmValue;
+            end;
+
+            // write the digest method in canonical form
+            AddChild(_dsDigestMethod).Attributes[_algorithmA] := _dsDigestAlgorithmValue;
+
+            AddChild(_dsDigestValue).Text := freshnessDigest;
+          end;
+        end;
       end;
-
-      // write the body digest
-      WriteTagStartAndAttributes(_dsReference,
-        [Format(_dsReferenceURIAttr, [_BodyReference])]);
-
-      // write the transforms tag
-      WriteTagStart(_dsTransforms);
-      WriteTagStartAndAttributes(_dsTransform, [_dsCanonicalAlgorithm]);
-      WriteTagEnd(_dsTransform);
-      WriteTagEnd(_dsTransforms);
-
-      // write the digest method in canonical form
-      WriteTagStartAndAttributes(_dsDigestMethod, [_dsDigestAlgorithm]);
-      WriteTagEnd(_dsDigestMethod);
-
-      WriteTagAndValue(_dsDigestValue, bodyDigest);
-      WriteTagEnd(_dsReference);
-
-      // if we have a session then write the sequence digest
-      if session <> nil then
-      begin
-        WriteTagStartAndAttributes(_dsReference,
-          [Format(_dsReferenceURIAttr, [_FreshnessReference])]);
-
-        // write the transforms tag
-        WriteTagStart(_dsTransforms);
-        WriteTagStartAndAttributes(_dsTransform, [_dsCanonicalAlgorithm]);
-        WriteTagEnd(_dsTransform);
-        WriteTagEnd(_dsTransforms);
-
-        // write the digest method in canonical form
-        WriteTagStartAndAttributes(_dsDigestMethod, [_dsDigestAlgorithm]);
-        WriteTagEnd(_dsDigestMethod);
-
-        WriteTagAndValue(_dsDigestValue, freshnessDigest);
-        WriteTagEnd(_dsReference);
-      end;
-
-      // close the block
-      WriteTagEnd(_dsSignedInfo);
-
-      // reset the parser
-      ResetParser;
 
       // if we have a session
       if session <> nil then
       begin
-
         // get the signing direction
         if fSoapDSigParameters.Values[_toDevice] <> '' then
         begin
@@ -2141,61 +2111,55 @@ begin
         // sign the signed info with the respective session key
         signatureValue := BinaryToBase64(
           TSecUtils.CreateHMACDigest(session.Key[signing, sigDirection].KeyValue,
-          FullTagValue,
+          XML.Text,
           fCryptoProvider));
       end
       else
       begin
         // otherwise sign it with with the public key
-        signatureValue := BinaryToBase64(fPrivateKey.Sign(FullTagValue));
+        signatureValue := BinaryToBase64(fPrivateKey.Sign(XML.Text));
       end;
     end;
 
     // use the security info buffer
     with aSecurityInfo do
     begin
-
       // write the signature opening tag
-      WriteTagStartAndAttributes(_dsSignature, [_dsSignatureXmlNS]);
-
-      // write the signed info
-      WriteStream(aWorkingBuf);
-
-      // write the signature value
-      WriteTagAndValue(_dsSignatureValue, signatureValue);
-
-      // write the key info
-      WriteTagStart(_dskeyInfo);
-
-      // if we have a session then write the session key ID
-      if session <> nil then
+      with AddChild(_dsSignature) do
       begin
-        WriteTagAndValue(_KeyName, IntToStr(session.fDeviceKeyID));
-      end
-      else
-      begin
-        // otherwise write the public key data
-        // write the KeyValue tag
-        WriteTagStart(_KeyValue);
-        // write the public key data
-        fPrivateKey.SaveToXML(aSecurityInfo);
-        // write the KeyValue end tag
-        WriteTagEnd(_KeyValue);
+        Attributes[_attrXmlNS] := _dsSignatureXmlNSValue;
+
+        // write the signed info
+        ChildNodes.Add(aWorkingBuf.Node.CloneNode(true));
+
+        // write the signature value
+        AddChild(_dsSignatureValue).Text := signatureValue;
+
+        // write the key info
+        with AddChild(_dskeyInfo) do
+        begin
+          // if we have a session then write the session key ID
+          if session <> nil then
+          begin
+            AddChild(_KeyName).Text := IntToStr(session.fDeviceKeyID);
+          end
+          else
+          begin
+            // otherwise write the public key data
+            // write the KeyValue tag
+            with AddChild(_KeyValue) do
+            begin
+              // write the public key data
+              fPrivateKey.SaveToXML(aSecurityInfo);
+            end;
+          end;
+        end;
       end;
-
-      // write the key info end tag
-      WriteTagEnd(_dskeyInfo);
-
-      // write the signature end tag
-      WriteTagEnd(_dsSignature);
-
-      // write the closing security info tag
-      WriteTagEnd(_SecurityInfo);
     end;
 
   finally
     // free the working buffer
-    aWorkingBuf.Free;
+    aWorkingBuf := nil;
     // always clean up the output parameter list after use
     fSoapDSigParameters.Clear;
   end;
@@ -2229,45 +2193,44 @@ function TUPnP_DeviceSecurity.CacheCertificates(aCertSequence: string): boolean;
 var
   lCertificate: string;
   cert: TUPnP_ACL_Entry;
-  buf:  TUPnP_XMLStream;
+  buf:  IXMLDocument;
+  node: IXMLNode;
 begin
   Result := False;
 
   // create a buffer
-  buf    := TUPnP_XMLStream.Create;
+  buf    := TXMLDocument.Create(nil);
   try
-    with buf do
-    begin
-      // write the certificate sequence into the buffer
-      WriteValues([aCertSequence]);
+    buf.Active := true;
+    // write the certificate sequence into the buffer
+    buf.XML.Add(aCertSequence);
 
-      // reset the parser
-      ResetParser;
-      if TagName = _sequence then
+    node := buf.ChildNodes.FindNode(_sequence );
+    if assigned(node) then
+    begin
+      Result := True;
+      node := node.NextSibling;
+      while assigned(node) do
       begin
-        Result := True;
-        while not EOF do
+        if node.NodeName = _cert then
         begin
-          NextTag;
-          if TagName = _cert then
-          begin
-            lCertificate := FullTagValue;
-          end;
-          if (TagName = _dsSignature) and (lCertificate <> '') then
-          begin
-            cert := CreateCertificate(lCertificate, FullTagValue);
-            if cert <> nil then
-            begin
-              fCertificates.Add(cert);
-            end;
-            lCertificate := '';
-          end;
+          lCertificate := Node.XML;
         end;
+        if (node.NodeName = _dsSignature) and (lCertificate <> '') then
+        begin
+          cert := CreateCertificate(lCertificate, node.XML);
+          if cert <> nil then
+          begin
+            fCertificates.Add(cert);
+          end;
+          lCertificate := '';
+        end;
+        node := node.NextSibling;
       end;
     end;
   finally
     fFreeCertCacheSize.fValue := IntToStr(maxCache - fCertificates.Count);
-    buf.Free;
+    buf := nil;
   end;
 end;
 
@@ -2299,25 +2262,26 @@ function TUPnP_DeviceSecurity.CreateCertificate(aCertificate, aSignature:
   Status: NOT TESTED
 }
 var
-  lCertBuf: TUPnP_XMLStream;
+  lCertBuf: IXMLDocument;
   lCert:    TUPnP_ACL_Entry;
   lSig:     TUPnP_DigitalSignature;
   lSessionKey: TUPnP_Session;
   lAuthResult: TUPnP_AuthorisationResult;
   lID:      string;
+  node: IXMLNode;
 begin
   Result := nil;
 
   // create a buffer for the certificate XML
-  lCertBuf := TUPnP_XMLStream.Create;
+  lCertBuf := TXMLDocument.Create(nil);
   try
-    lCertBuf.WriteValues([aCertificate]);
+    lCertBuf.Active := true;
+    lCertBuf.XML.Add(aCertificate);
 
     // look for the id attribute, and if found get the digest, and add it to the
     // parameter list
-    lCertBuf.ResetParser;
 
-    lID := lCertBuf.TagAttributeValue[_id];
+    lID := lCertBuf.Node.Attributes[_id];
     if lID <> '' then
     begin
       fCertDSigParameters.Add(Format(_equals,
@@ -2326,9 +2290,8 @@ begin
     end;
 
     // try to create a certificate object from the certificate XML
-    lCertBuf.ResetParser;
-    lCertBuf.NextTag;
-    lCert := TUPnP_ACL_Entry.CreateFromCertXML(self, lCertBuf);
+    node := lCertBuf.Node.NextSibling;
+    lCert := TUPnP_ACL_Entry.CreateFromCertXML(self, lCertBuf.Node);
     try
       if lCert.fStatusOk then
       begin
@@ -2353,7 +2316,7 @@ begin
       end;
     end;
   finally
-    lCertBuf.Free;
+    lCertBuf := nil;
     fCertDSigParameters.Clear;
   end;
 end;
@@ -2368,32 +2331,30 @@ function TUPnP_DeviceSecurity.OnGetDefinedPermissions
   0    OUT/RET    yes        The permissions in XML
 }
 var
-  buf: TUPnP_XMLStream;
+  buf: IXMLDocument;
+  node: IXMLNode;
   i:   integer;
 begin
   // create a buffer
-  buf := TUPnP_XMLStream.Create;
+  buf := TXMLDocument.Create(nil);
   try
-
+    buf.Active := true;
     // write the permissions start tag with the owning device's namespace
-    buf.WriteTagStartAndAttributes(_permissions,
-      [Format(_PermsNamespaceFmt, [fOwnerDevice.Manufacturer])]);
+    node := buf.AddChild(_permissions);
+    node.Attributes[_attrXmlNS] :=
+      Format(_PermsNamespaceFmtValue, [fOwnerDevice.Manufacturer]);
 
     for i := 0 to pred(SecurityPermissions.Count) do
     begin
-      SecurityPermissions.SecurityPermission[i].SaveToXML(buf);
+      SecurityPermissions.SecurityPermission[i].SaveToXML(node);
     end;
 
-    // write the permissions end tag
-    buf.WriteTagEnd(_permissions);
-
     // escape the resulting xml and put it in the return argument [0]
-    Caller.Arguments[0].Value := XmlToEscaped(buf.AsText);
+    Caller.Arguments[0].Value := XmlToEscaped(buf.XML.Text);
 
   finally
-
     // free the buffer
-    buf.Free;
+    buf := nil;
   end;
   // always return true = success
   Result := True;
@@ -2409,23 +2370,20 @@ function TUPnP_DeviceSecurity.OnGetDefinedProfiles
   0    OUT/RET    yes        The profiles in XML
 }
 var
-  buf: TUPnP_XMLStream;
+  buf: IXMLDocument;
 begin
   // create a buffer
-  buf := TUPnP_XMLStream.Create;
+  buf := TXMLDocument.Create(nil);
   try
-
+    buf.Active := true;
     // write an empty tag
-    buf.WriteTagStartAndAttributes(_profiles,
-      [Format(_PermsNamespaceFmt, [fOwnerDevice.Manufacturer])]);
-    buf.WriteTagEnd(_profiles);
-
+    buf.AddChild(_profiles).Attributes[_attrXmlNS ] :=
+      Format(_PermsNamespaceFmtValue, [fOwnerDevice.Manufacturer]);
     // escape the resulting xml and put it in the return argument [0]
-    Caller.Arguments[0].Value := XmlToEscaped(buf.AsText);
+    Caller.Arguments[0].Value := XmlToEscaped(buf.XML.Text);
   finally
-
     // free the buffer
-    buf.Free;
+    buf := nil;
   end;
 
   // always return true = success
@@ -2447,8 +2405,9 @@ function TUPnP_DeviceSecurity.OnWriteACL
 var
   newACLentries: TUPnP_AuthList;
   entry: TUPnP_ACL_Entry;
-  buf:   TUPnP_XMLStream;
+  buf: IXMLDocument;
   err:   TSOAPErrorCodes;
+  node: IXMLNode;
 begin
   // preset result to false = fail
   Result := False;
@@ -2461,32 +2420,31 @@ begin
     begin
 
       // create a buffer
-      buf := TUPnP_XMLStream.Create;
+      buf := TXMLDocument.Create(nil);
       try
         try
 
           // get the acl from argument [1]-- remove the escaping from the argument and
           // write it into the buffer
-          buf.WriteValues([EscapedToXml(Caller.Arguments[1].Value)]);
-
-          // reset the parser
-          buf.ResetParser;
-          buf.NextTag;
+          buf.XML.Add(EscapedToXml(Caller.Arguments[1].Value));
 
           // read the new ACL
           newACLentries := TUPnP_AuthList.Create;
           Result := True;
 
-          while buf.TagName = _entry do
+          node := buf.ChildNodes.First;
+          node := node.NextSibling;
+
+          while node.NodeName = _entry do
           begin
             // create the entry from the stream
-            entry := TUPnP_ACL_Entry.CreateFromAclXml(buf);
+            entry := TUPnP_ACL_Entry.CreateFromAclXml(node);
             if (entry <> nil) and (newACLentries.Count < maxACL) then
             begin
               // add it to the list
               newACLentries.Add(entry);
               Result := True;
-              buf.NextTag;
+              node := node.NextSibling;
             end
             else
             begin
@@ -2523,7 +2481,7 @@ begin
         end;
 
       finally
-        buf.Free;
+        buf := nil;
       end;
 
     end
@@ -2556,26 +2514,25 @@ function TUPnP_DeviceSecurity.OnReadACL
   1    OUT        yes        The full ACL in XML
 }
 var
-  buf: TUPnP_XMLStream;
+  buf: IXMLDocument;
+  node : IXMLNode;
 begin
   // create a buffer
-  buf := TUPnP_XMLStream.Create;
+  buf := TXMLDocument.Create(nil);
   try
 
     // save the ACL to the buffer
-    buf.WriteTagStart(_ACL);
-    fACLentries.SaveToXML(buf);
-    buf.WriteTagEnd(_ACL);
+    node := buf.AddChild(_ACL);
+    fACLentries.SaveToXML(node);
 
     // return the ACL version in Argument[0]
     Caller.Arguments[0].Value := fACLVersionValue;
 
     // return the ACL in Argument[1]
-    Caller.Arguments[1].Value := XmlToEscaped(buf.AsText);
+    Caller.Arguments[1].Value := XmlToEscaped(buf.XML.Text);
   finally
-
     // free the buffer
-    buf.Free;
+    buf := nil;
   end;
 
   // always return true = success
@@ -2593,7 +2550,7 @@ function TUPnP_DeviceSecurity.OnAddACLEntry
 }
 var
   entry: TUPnP_ACL_Entry;
-  buf:   TUPnP_XMLStream;
+  buf:   IXMLDocument;
   err:   TSOAPErrorCodes;
   i:     integer;
   found: boolean;
@@ -2606,19 +2563,16 @@ begin
   begin
 
     // create a buffer
-    buf := TUPnP_XMLStream.Create;
+    buf := TXMLDocument.Create(nil);
     try
 
       // remove the escaping from the argument and write it into the buffer
-      buf.WriteValues([EscapedToXml(Caller.Arguments[0].Value)]);
-
-      // reset the parser
-      buf.ResetParser;
+      buf.XML.Add(EscapedToXml(Caller.Arguments[0].Value));
 
       try
 
         // try to create an ACL entry
-        entry := TUPnP_ACL_Entry.CreateFromAclXml(buf);
+        entry := TUPnP_ACL_Entry.CreateFromAclXml(buf.DocumentElement);
 
         // check if the entry is good
         if entry.fStatusOk then
@@ -2690,7 +2644,7 @@ begin
     finally
 
       // free the buffer
-      buf.Free;
+      buf := nil;
     end;
   end
   else
@@ -2801,7 +2755,7 @@ function TUPnP_DeviceSecurity.OnReplaceACLEntry
 }
 var
   i:     integer;
-  buf:   TUPnP_XMLStream;
+  buf:   IXMLDocument;
   entry: TUPnP_ACL_Entry;
   err:   TSOAPErrorCodes;
 begin
@@ -2823,18 +2777,15 @@ begin
         begin
 
           // create a buffer
-          buf := TUPnP_XMLStream.Create;
+          buf := TXMLDocument.Create(nil);
           try
 
             // write the 3rd argument into the buffer
-            buf.WriteValues([EscapedToXml(Arguments[2].Value)]);
+            buf.XML.Add(EscapedToXml(Arguments[2].Value));
 
-            // reset the parser
-            buf.ResetParser;
             try
-
               // create an ACL entry and set the ACL entry data from the buffer
-              entry := TUPnP_ACL_Entry.CreateFromAclXml(buf);
+              entry := TUPnP_ACL_Entry.CreateFromAclXml(buf.DocumentElement);
 
               // if the ACL entry was sucessfully loaded then replace the one in the ACL list
               if entry.fStatusOk then
@@ -2874,7 +2825,7 @@ begin
           finally
 
             // free the buffer
-            buf.Free;
+            buf := nil;
           end;
         end
         else
@@ -2920,24 +2871,24 @@ function TUPnP_DeviceSecurity.OnListOwners
   1    OUT        yes        List of owners in XML
 }
 var
-  buf: TUPnP_XMLStream;
+  buf: IXMLDocument;
+  node: IXMLNode;
 begin
   // create a buffer
-  buf := TUPnP_XMLStream.Create;
+  buf := TXMLDocument.Create(nil);
   try
 
     // list the owners
-    buf.WriteTagStart(_Owners);
-    fSecurityOwners.SaveToXML(buf);
-    buf.WriteTagEnd(_Owners);
+    node := buf.AddChild(_Owners);
+    fSecurityOwners.SaveToXML(node);
 
     // and return the escaped list in Argument[1]
-    Caller.Arguments[1].Value := XmlToEscaped(buf.AsText);
+    Caller.Arguments[1].Value := XmlToEscaped(buf.XML.Text);
 
   finally
 
     // free the buffer
-    buf.Free;
+    buf := nil;
   end;
 
   // return true = success
@@ -3236,34 +3187,34 @@ function TUPnP_DeviceSecurity.OnGetPublicKeys
   0    OUT/RET    yes        The public keys in XML
 }
 var
-  buf: TUPnP_XMLStream;
+  buf: IXMLDocument;
+  confi_node: IXMLNode;
 begin
   // preset the result
   Result := True;
 
   // create the output buffer
-  buf := TUPnP_XMLStream.Create;
+  buf := TXMLDocument.Create(nil);
   try
     with buf do
     begin
 
       // write the starting tags
-      WriteTagStart(_Keys);
-      WriteTagStart(_key_type[Confidentiality]);
+      with AddChild(_Keys) do
+      begin
+        confi_node := AddChild(_key_type[Confidentiality]);
+        // save the (public parts of the) private key to the IO buffer
+        fPrivateKey.SaveToXML(confi_node);
+      end;
 
-      // save the (public parts of the) private key to the IO buffer
-      fPrivateKey.SaveToXML(buf);
-      // write the ending tags
-      WriteTagEnd(_key_type[Confidentiality]);
-      WriteTagEnd(_Keys);
 
       // transfer the xml to the return argument
-      Caller.Arguments[0].Value := XmlToEscaped(AsText);
+      Caller.Arguments[0].Value := XmlToEscaped(XML.Text);
     end;
 
   finally
     // free the buffer
-    buf.Free;
+    buf := nil;
   end;
 end;
 
@@ -3410,7 +3361,7 @@ function TUPnP_DeviceSecurity.OnSetSessionKeys
   5    OUT        yes        Base for action sequencing
 }
 var
-  claim:   TUPnP_XMLStream;
+  claim:   IXMLDocument;
   sess:    TUPnP_Session;
   plaintext: string;
   err:     TSOAPErrorCodes;
@@ -3463,18 +3414,15 @@ begin
             end;
 
             // create an xml IO buffer
-            claim := TUPnP_XMLStream.Create;
+            claim := TXMLDocument.Create(nil);
             try
               try
 
                 // put the plaintext in an IO buffer
-                claim.WriteValues([plaintext]);
-
-                // reset the parser
-                claim.ResetParser;
+                claim.XML.Add(plaintext);
 
                 // set the Session entry data from the buffer
-                sess := TUPnP_Session.CreateFromXML(self, claim);
+                sess := TUPnP_Session.CreateFromXML(self, claim.DocumentElement);
 
                 // store the CP Key ID (default to -1 in case of error)
                 sess.fCPKeyID := StrToIntDef(Arguments[3].Value, -1);
@@ -3513,7 +3461,7 @@ begin
 
             finally
               // free the buffer
-              claim.Free;
+              claim := nil;
             end;
           end;
         end;
@@ -3655,12 +3603,11 @@ begin
   err    := err_Action_Failed;
 
   // create a duplicate Request
-  lRequest := TUPNP_IdHTTPRequestInfo.Create;
+  lRequest := TUPNP_IdHTTPRequestInfo.Create(nil);
   lRequestWrapper := TUPnP_HTTPServerRequestWrapper.Create(lRequest);
 
   // create a duplicate Response
-  lResponse := TUPNP_IdHTTPResponseInfo.Create(nil,
-    fControlResponse.Response.HTTPServer);
+  lResponse := TUPNP_IdHTTPResponseInfo.Create(nil, lRequest, nil);
   lResponseWrapper := TUPnP_HTTPServerResponseWrapper.Create(lResponse);
 
   try
@@ -4771,7 +4718,7 @@ begin
   end;
 end;
 
-procedure TUPnP_ACL_Entry.SaveToCertXML(aBuffer: TUPnP_XMLStream;
+procedure TUPnP_ACL_Entry.SaveToCertXML(aBuffer: IXMLDocument;
   anIssuerRSAKey: TUPnP_PrivateKey; aDeviceHash: string);
 {
   Get the ACL entry in certificate XML format
@@ -4780,201 +4727,188 @@ procedure TUPnP_ACL_Entry.SaveToCertXML(aBuffer: TUPnP_XMLStream;
 var
   i:      integer;
   unique: string;
-  lCertBuffer, lSigInfoBuffer: TUPnP_XMLStream;
+  lCertBuffer, lSigInfoBuffer: IXMLDocument;
+  issuer_node: IXMLNode;
 begin
-  lCertBuffer    := TUPnP_XMLStream.Create;
-  lSigInfoBuffer := TUPnP_XMLStream.Create;
+  lCertBuffer    := TXMLDocument.Create(nil);
+  lSigInfoBuffer := TXMLDocument.Create(nil);
   try
     with lCertBuffer do
     begin
       // write the certificate start tag
       unique := anIssuerRSAKey.fDevSec.fRandomString;
-      WriteTagStartAndAttributes(_cert, [Format('%s="%s"', [_Id, unique])]);
-
-      // write the issuer
-      WriteTagStart(_issuer);
-      WriteTagStart(_hash);
-      WriteTagAndValue(_algorithm, _shaUC);
-      WriteTagAndValue(_value,
-        BinaryToBase64(TSecUtils.StringToHash(
-        anIssuerRSAKey.AsString,
-        anIssuerRSAKey.fDevSec.fCryptoProvider)));
-      WriteTagEnd(_hash);
-      WriteTagEnd(_issuer);
-
-      // write the subject
-      WriteTagStart(_subject);
-
-      // if it has a name then write the name tag start
-      case fSubjectType of
-        st_Name:
+      with AddChild(_cert) do
+      begin
+        Attributes[_id] := '"' + unique + '"';
+        // write the issuer
+        with AddChild(_issuer) do
         begin
-          WriteTagStart(_name);
-          WriteTagStart(_hash);
-          WriteTagAndValue(_algorithm, _shaUC);
-          WriteTagAndValue(_value, fIssuerString);
-          WriteTagEnd(_hash);
-          WriteTagAndValue(_text, fSubjectString);
-          WriteTagEnd(_name);
+          with AddChild(_hash) do
+          begin
+            AddChild(_algorithm).Text := _shaUC;
+            AddChild(_value).Text := BinaryToBase64(TSecUtils.StringToHash(
+              anIssuerRSAKey.AsString,
+              anIssuerRSAKey.fDevSec.fCryptoProvider));
+          end;
         end;
 
-        st_Key:
+        // write the subject
+        with AddChild(_subject) do
         begin
-          // write the owner's hash
-          WriteTagStart(_hash);
-          WriteTagAndValue(_algorithm, _shaUC);
-          WriteTagAndValue(_value, fSubjectString);
-          WriteTagEnd(_hash);
+          // if it has a name then write the name tag start
+          case fSubjectType of
+            st_Name:
+            begin
+              with AddChild(_name) do
+              begin
+                with AddChild(_hash) do
+                begin
+                  AddChild(_algorithm).Text := _shaUC;
+                  AddChild(_value).Text := fIssuerString;
+                end;
+                AddChild(_text).Text := fSubjectString;
+              end;
+            end;
+
+            st_Key:
+            begin
+              // write the owner's hash
+              with AddChild(_hash) do
+              begin
+                AddChild(_algorithm).Text :=_shaUC;
+                AddChild(_value).Text := fSubjectString;
+              end;
+            end;
+
+            st_Any:
+            begin
+              // if the owner is any then write it
+              AddChild(_any).Text := '';
+            end;
+          end;
         end;
 
-        st_Any:
+        with AddChild(_tag) do
         begin
-          // if the owner is any then write it
-          WriteTagAndValue(_any, '');
+          // write the target device infor
+          with AddChild(_device) do
+          begin
+            with AddChild(_hash) do
+            begin
+              AddChild(_algorithm).Text := _shaUC;
+              AddChild(_value).Text := aDeviceHash;
+            end;
+          end;
+          // write the permissions
+          with AddChild(_access) do
+          begin
+            // if the permission is all then write it
+            if fPermissions.IndexOf(_allStar) >= 0 then
+            begin
+              AddChild(_all).Text := '';
+            end
+            else
+            begin
+              // otherwise loop throught the permissions and write them
+              for i := 0 to pred(fPermissions.Count) do
+              begin
+                AddChild(fPermissions.Strings[i]).Text := '';
+              end;
+            end;
+          end;
+        end;
+
+        // write if delegation is not allowed
+        if fMayNotDelegate then
+        begin
+          AddChild(_MayNotDelegate).Text := '';
+        end;
+
+        // if we have non zero validity dates
+        if (fValidityStart <> '') or (fValidityEnd <> '') then
+        begin
+
+          // write the validity block
+          with AddChild(_valid) do
+          begin
+            if fValidityStart <> '' then
+            begin
+              AddChild(_notbefore).Text := fValidityStart;
+            end;
+
+            if fValidityEnd <> '' then
+            begin
+              AddChild(_notafter).Text := fValidityEnd;
+            end;
+          end;
         end;
       end;
-
-      // write the subject end tag
-      WriteTagEnd(_subject);
-
-      WriteTagStart(_tag);
-
-      // write the target device infor
-      WriteTagStart(_device);
-      WriteTagStart(_hash);
-      WriteTagAndValue(_algorithm, _shaUC);
-      WriteTagAndValue(_value, aDeviceHash);
-      WriteTagEnd(_hash);
-      WriteTagEnd(_device);
-
-      // write the permissions
-      WriteTagStart(_access);
-
-      // if the permission is all then write it
-      if fPermissions.IndexOf(_allStar) >= 0 then
-      begin
-        WriteTagAndValue(_all, '');
-      end
-      else
-      begin
-        // otherwise loop throught the permissions and write them
-        for i := 0 to pred(fPermissions.Count) do
-        begin
-          WriteTagAndValue(fPermissions.Strings[i], '');
-        end;
-      end;
-
-      // write the access end tag
-      WriteTagEnd(_access);
-
-      WriteTagEnd(_tag);
-
-      // write if delegation is not allowed
-      if fMayNotDelegate then
-      begin
-        WriteTagAndValue(_MayNotDelegate, '');
-      end;
-
-      // if we have non zero validity dates
-      if (fValidityStart <> '') or (fValidityEnd <> '') then
-      begin
-
-        // write the validity block
-        WriteTagStart(_valid);
-        if fValidityStart <> '' then
-        begin
-          WriteTagAndValue(_notbefore, fValidityStart);
-        end;
-
-        if fValidityEnd <> '' then
-        begin
-          WriteTagAndValue(_notafter, fValidityEnd);
-        end;
-
-        WriteTagEnd(_valid);
-      end;
-
-      // write the entry end tag
-      WriteTagEnd(_cert);
     end;
 
     with lSigInfoBuffer do
     begin
-
       // create the signed info block
-      WriteTagStartAndAttributes(_dsSignedInfo, [_dsSignatureXmlNS]);
+      with AddChild(_dsSignedInfo) do
+      begin
+        Attributes[_attrXmlNS] := _dsSignatureXmlNSValue;
+        // write the canonicalization method in canonical form
+        AddChild(_dsCanonicalMethod).Attributes[_algorithm ] := _dsCanonicalAlgorithmValue;
 
-      // write the canonicalization method in canonical form
-      WriteTagStartAndAttributes(_dsCanonicalMethod, [_dsCanonicalAlgorithm]);
-      WriteTagEnd(_dsCanonicalMethod);
+        // the signature method is rsa-sha1
+        AddChild(_dsSignatureMethod).Attributes[_algorithm] := _dsSignatureAlgorithm2Value;
 
-      // the signature method is rsa-sha1
-      WriteTagStartAndAttributes(_dsSignatureMethod, [_dsSignatureAlgorithm2]);
-      WriteTagEnd(_dsSignatureMethod);
+        // write the cert digest
+        with AddChild(_dsReference) do
+        begin
+          Attributes['URI'] := '"' + '#' + unique + '"';
 
-      // write the cert digest
-      WriteTagStartAndAttributes(_dsReference,
-        [Format(_dsReferenceURIAttr, ['#' + unique])]);
+          // write the transforms tag
+          with AddChild(_dsTransforms) do
+          begin
+            AddChild(_dsTransform).Attributes[_algorithmA] := _dsCanonicalAlgorithmValue;
+          end;
 
-      // write the transforms tag
-      WriteTagStart(_dsTransforms);
-      WriteTagStartAndAttributes(_dsTransform, [_dsCanonicalAlgorithm]);
-      WriteTagEnd(_dsTransform);
-      WriteTagEnd(_dsTransforms);
+          // write the digest method in canonical form
+          AddChild(_dsDigestMethod).Attributes[_algorithmA] := _dsDigestAlgorithmValue;
 
-      // write the digest method in canonical form
-      WriteTagStartAndAttributes(_dsDigestMethod, [_dsDigestAlgorithm]);
-      WriteTagEnd(_dsDigestMethod);
-
-      WriteTagAndValue(_dsDigestValue,
-        BinaryToBase64(TSecUtils.StringToHash(lCertBuffer.AsText,
-        anIssuerRSAKey.fDevSec.fCryptoProvider)));
-      WriteTagEnd(_dsReference);
-
-      // close the block
-      WriteTagEnd(_dsSignedInfo);
+          AddChild(_dsDigestValue).Text := BinaryToBase64(TSecUtils.StringToHash(lCertBuffer.XML.Text,
+            anIssuerRSAKey.fDevSec.fCryptoProvider));
+        end;
+      end;
     end;
 
     with aBuffer do
     begin
-      WriteValues([lCertBuffer.AsText]);
+      XML.Add(lCertBuffer.XML.Text);
 
       // write the signature opening tag
-      WriteTagStartAndAttributes(_dsSignature, [_dsSignatureXmlNS]);
+      with AddChild(_dsSignature) do
+      begin
+        Attributes[_attrXmlNS] := _dsSignatureXmlNSValue;
 
-      // write the signed info
-      WriteValues([lSigInfoBuffer.AsText]);
+        // write the signed info
+        aBuffer.XML.Add(lSigInfoBuffer.XML.Text);
 
-      // write the signature value
-      WriteTagAndValue(_dsSignatureValue,
-        BinaryToBase64(anIssuerRSAKey.Sign(lSigInfoBuffer.AsText)));
+        // write the signature value
+        AddChild(_dsSignatureValue).Text := BinaryToBase64(anIssuerRSAKey.Sign(lSigInfoBuffer.XML.Text));
 
-      // write the key info
-      WriteTagStart(_dskeyInfo);
-
-      // write the KeyValue tag
-      WriteTagStart(_KeyValue);
-
-      // write the public key data
-      anIssuerRSAKey.SaveToXML(aBuffer);
-
-      // write the KeyValue end tag
-      WriteTagEnd(_KeyValue);
-
-      // write the key info end tag
-      WriteTagEnd(_dskeyInfo);
-
-      // write the signature end tag
-      WriteTagEnd(_dsSignature);
+        // write the key info
+        with AddChild(_dskeyInfo) do
+        begin
+          // write the KeyValue tag
+          issuer_node := AddChild(_KeyValue);
+          // write the public key data
+          anIssuerRSAKey.SaveToXML(node);
+        end;
+      end;
     end;
-
   finally
-    lCertBuffer.Free;
-    lSigInfoBuffer.Free;
+    lCertBuffer := nil;
+    lSigInfoBuffer := nil;
   end;
 end;
 
-procedure TUPnP_ACL_Entry.SaveToXML(aBuffer: TUPnP_XMLStream);
+procedure TUPnP_ACL_Entry.SaveToXML(aBuffer: IXMLNode);
 {
   Get the ACL entry in XML format
   Status: FULLY TESTED
@@ -4984,90 +4918,86 @@ var
 begin
   with aBuffer do
   begin
-
     // write the start tag
-    WriteTagStart(_entry);
-
-    // write the subject
-    WriteTagStart(_subject);
-
-    // if it has a name then write the name tag start
-    case fSubjectType of
-      st_Name:
+    with AddChild(_entry) do
+    begin
+      // write the subject
+      with AddChild(_subject) do
       begin
-        WriteTagStart(_name);
-        WriteTagStart(_hash);
-        WriteTagAndValue(_algorithm, _shaUC);
-        WriteTagAndValue(_value, fIssuerString);
-        WriteTagEnd(_hash);
-        WriteTagAndValue(_text, fSubjectString);
-        WriteTagEnd(_name);
+        // if it has a name then write the name tag start
+        case fSubjectType of
+          st_Name:
+          begin
+            with AddChild(_name) do
+            begin
+              with AddChild(_hash) do
+              begin
+                AddChild(_algorithm).Text := _shaUC;
+                AddChild(_value).Text := fIssuerString;
+              end;
+              AddChild(_text).Text := fSubjectString;
+            end;
+          end;
+
+          st_Key:
+          begin
+            // write the owner's hash
+            with AddChild(_hash) do
+            begin
+              AddChild(_algorithm).Text :=_shaUC;
+              AddChild(_value).Text := fSubjectString;
+            end;
+          end;
+
+          st_Any:
+          begin
+            // if the owner is any then write it
+            AddChild(_any).Text := '';
+          end;
+        end;
       end;
 
-      st_Key:
+      // write if delegation is not allowed
+      if fMayNotDelegate then
       begin
-        // write the owner's hash
-        WriteTagStart(_hash);
-        WriteTagAndValue(_algorithm, _shaUC);
-        WriteTagAndValue(_value, fSubjectString);
-        WriteTagEnd(_hash);
+        AddChild(_MayNotDelegate).Text := '';
       end;
 
-      st_Any:
+      // write the permissions
+      with AddChild(_access) do
       begin
-        // if the owner is any then write it
-        WriteTagAndValue(_any, '');
+        // if the permission is all then write it
+        if fPermissions.IndexOf(_allStar) >= 0 then
+        begin
+          AddChild(_all).Text := '';
+        end
+        else
+        begin
+          // otherwise loop throught the permissions and write them
+          for i := 0 to pred(fPermissions.Count) do
+          begin
+            AddChild(fPermissions.Strings[i]).Text := '';
+          end;
+        end;
+      end;
+
+      // if we have non zero validity dates
+      if (fValidityStart <> '') or (fValidityEnd <> '') then
+      begin
+        // write the validity block
+        with AddChild(_valid) do
+        begin
+          if fValidityStart <> '' then
+          begin
+            AddChild(_notbefore).Text := fValidityStart;
+          end;
+          if fValidityEnd <> '' then
+          begin
+            AddChild(_notafter).Text := fValidityEnd;
+          end;
+        end;
       end;
     end;
-
-    // write the subject end tag
-    WriteTagEnd(_subject);
-
-    // write if delegation is not allowed
-    if fMayNotDelegate then
-    begin
-      WriteTagAndValue(_MayNotDelegate, '');
-    end;
-
-    // write the permissions
-    WriteTagStart(_access);
-
-    // if the permission is all then write it
-    if fPermissions.IndexOf(_allStar) >= 0 then
-    begin
-      WriteTagAndValue(_all, '');
-    end
-    else
-    begin
-      // otherwise loop throught the permissions and write them
-      for i := 0 to pred(fPermissions.Count) do
-      begin
-        WriteTagAndValue(fPermissions.Strings[i], '');
-      end;
-    end;
-
-    // write the access end tag
-    WriteTagEnd(_access);
-
-    // if we have non zero validity dates
-    if (fValidityStart <> '') or (fValidityEnd <> '') then
-    begin
-
-      // write the validity block
-      WriteTagStart(_valid);
-      if fValidityStart <> '' then
-      begin
-        WriteTagAndValue(_notbefore, fValidityStart);
-      end;
-      if fValidityEnd <> '' then
-      begin
-        WriteTagAndValue(_notafter, fValidityEnd);
-      end;
-      WriteTagEnd(_valid);
-    end;
-
-    // write the entry end tag
-    WriteTagEnd(_entry);
   end;
 end;
 
@@ -5114,13 +5044,14 @@ begin
   inherited;
 end;
 
-constructor TUPnP_ACL_Entry.CreateFromAclXml(aBuffer: TUPnP_XMLStream);
+constructor TUPnP_ACL_Entry.CreateFromAclXml(aBuffer: IXMLNode);
 {
   Parse incoming XML to fill in ACL values
   Status: FULLY TESTED
 }
 var
   s: string;
+  node: IXMLNode;
 const
   actname = 'CreateFromAclXml';
 begin
@@ -5128,104 +5059,99 @@ begin
   Create;
   fStatusOk := False;
 
-  with aBuffer do
+  node := aBuffer.NextSibling;
+  // get the subject
+  if node.NodeName = _subject then
   begin
-    NextTag;
-
-    // get the subject
-    if TagName = _subject then
+    // get the next tag
+    node := node.NextSibling;
+    // if the 'any' tag is present, set the ACL entry type accordingly
+    if node.NodeName = _any then
     begin
-      // get the next tag
-      NextTag;
-
-      // if the 'any' tag is present, set the ACL entry type accordingly
-      if TagName = _any then
+      fSubjectType := st_Any;
+      fIssuerType  := st_Key;
+      fStatusOk    := True;
+      node := node.NextSibling;
+    end
+    else
+    begin
+      // if name tag is present then process as a name entry, set the ACL entry type
+      // accordingly
+      if node.NodeName = _name then
       begin
-        fSubjectType := st_Any;
-        fIssuerType  := st_Key;
-        fStatusOk    := True;
-        NextTag;
-      end
-      else
-      begin
-        // if name tag is present then process as a name entry, set the ACL entry type
-        // accordingly
-        if TagName = _name then
+        node := node.NextSibling;
+        // get the hash of the entry's principle
+        if node.NodeName = _hash then
         begin
-          NextTag;
-          // get the hash of the entry's principle
-          if TagName = _hash then
+          if DoGetHash(node.NodeValue, fIssuerString) then
           begin
-            if DoGetHash(TagValue, fIssuerString) then
+            node := node.NextSibling;
+            // get the name
+            if node.NodeName = _text then
             begin
-              NextPeer;
-              // get the name
-              if TagName = _text then
-              begin
-                fSubjectString := TagValue;
-                fSubjectType   := st_Name;
-                fIssuerType    := st_Key;
-                fStatusOk      := True;
-                NextTag;
-              end;
-            end;
-          end;
-        end
-        else
-        begin
-          // get the hash of the entry's owner
-          if TagName = _hash then
-          begin
-            if DoGetHash(TagValue, s) then
-            begin
-              NextPeer;
-              fSubjectString := s;
-              fIssuerString  := s;
-              fSubjectType   := st_Key;
+              fSubjectString := node.NodeValue;
+              fSubjectType   := st_Name;
               fIssuerType    := st_Key;
               fStatusOk      := True;
+              node := node.NextSibling;
             end;
           end;
-        end;
-      end;
-
-      // get the maynot delegate flag
-      if TagName = _MayNotDelegate then
-      begin
-        fMayNotDelegate := True;
-        NextTag;
-      end;
-
-      // get the permissions
-      fPermissions.Text := '';
-
-      { TODO -oAFG -cnice to have : Check that the namespace is correct }
-      if TagName = _access then
-      begin
-        if DoGetPermissions(TagValue, s) then
-        begin
-          fPermissions.Text := s;
-        end
-        else
-        begin
-          fStatusOk := False;
-        end;
-        NextPeer;
-      end;
-
-      // get the (optional) validity tags
-      if TagName = _valid then
-      begin
-        if not DoGetValidity(TagValue, fValidityStart, fValidityEnd) then
-        begin
-          fStatusOk := False;
         end;
       end
       else
       begin
-        fValidityStart := '';
-        fValidityEnd   := '';
+        // get the hash of the entry's owner
+        if node.NodeName = _hash then
+        begin
+          if DoGetHash(node.NodeValue, s) then
+          begin
+            node := node.NextSibling;
+            fSubjectString := s;
+            fIssuerString  := s;
+            fSubjectType   := st_Key;
+            fIssuerType    := st_Key;
+            fStatusOk      := True;
+          end;
+        end;
       end;
+    end;
+
+    // get the maynot delegate flag
+    if node.NodeName = _MayNotDelegate then
+    begin
+      fMayNotDelegate := True;
+      node := node.NextSibling;
+    end;
+
+    // get the permissions
+    fPermissions.Text := '';
+
+    { TODO -oAFG -cnice to have : Check that the namespace is correct }
+    if node.NodeName = _access then
+    begin
+      if DoGetPermissions(node.Text, s) then
+      begin
+        fPermissions.Text := s;
+      end
+      else
+      begin
+        fStatusOk := False;
+      end;
+      node := node.NextSibling;
+    end;
+
+    // get the (optional) validity tags
+    if node.NodeName = _valid then
+    begin
+      if not DoGetValidity(node.Text, fValidityStart, fValidityEnd) then
+      begin
+        fStatusOk := False;
+      end;
+    end
+    else
+    begin
+      fValidityStart := '';
+      fValidityEnd   := '';
     end;
   end;
 end;
@@ -5272,13 +5198,14 @@ begin
 end;
 
 constructor TUPnP_ACL_Entry.CreateFromCertXML(aDevSec: TUPnP_DeviceSecurity;
-  aBuffer: TUPnP_XMLStream);
+  aBuffer: IXMLNode);
 {
   Parse incoming XML to fill in values from a certificate
   Status: NOT TESTED
 }
 var
   lDeviceHash, s: string;
+  node: IXMLNode;
 const
   actname = 'CreateFromCertXML';
 begin
@@ -5286,104 +5213,102 @@ begin
   Create;
   fStatusOk := False;
 
-  with aBuffer do
+  node := aBuffer;
+  // if the first tag is issuer this is an authorization certificate
+  if node.NodeName = _issuer then
   begin
-    // if the first tag is issuer this is an authorization certificate
-    if TagName = _issuer then
+    fIssuerType := st_Key;
+
+    // get the next tag
+    node := node.NextSibling;
+
+    // get the hash of the issuer
+    if (node.NodeName = _hash) and DoGetHash(node.NodeValue, fIssuerString) then
     begin
-      fIssuerType := st_Key;
-
       // get the next tag
-      NextTag;
+      node := node.NextSibling;
 
-      // get the hash of the issuer
-      if (TagName = _hash) and DoGetHash(TagValue, fIssuerString) then
+      // get the hash of the subject
+      if node.NodeName = _subject then
       begin
-        // get the next tag
-        NextPeer;
+        node := node.NextSibling;
 
-        // get the hash of the subject
-        if TagName = _subject then
+        // if name tag is present then process as a name entry, set the ACL entry type
+        // accordingly
+        if node.NodeName = _name then
         begin
-          NextTag;
-
-          // if name tag is present then process as a name entry, set the ACL entry type
-          // accordingly
-          if TagName = _name then
+          // get the hash of the entry's principle
+          if node.NodeName = _hash then
           begin
-            // get the hash of the entry's principle
-            if TagName = _hash then
+            if DoGetHash(node.NodeValue, s) then
             begin
-              if DoGetHash(TagValue, s) then
-              begin
-                NextPeer;
+              node := node.NextSibling;
 
-                // get the name
-                if TagName = _text then
-                begin
-                  fSubjectString := TagValue;
-                  fSubjectType   := st_Name;
-                  fStatusOk      := True;
-                end;
+              // get the name
+              if node.NodeName = _text then
+              begin
+                fSubjectString := node.NodeValue;
+                fSubjectType   := st_Name;
+                fStatusOk      := True;
               end;
             end;
-          end
-          else
-          begin
-            if (TagName = _hash) and DoGetHash(TagValue, fSubjectString) then
-            begin
-              fSubjectType := st_Key;
-              fStatusOk    := True;
-            end;
           end;
-
-          NextPeer;
-          if fStatusOk then
+        end
+        else
+        begin
+          if (node.NodeName = _hash) and DoGetHash(node.NodeValue, fSubjectString) then
           begin
-            fStatusOk := False;
-            if TagName = _tag then
+            fSubjectType := st_Key;
+            fStatusOk    := True;
+          end;
+        end;
+
+        node := node.NextSibling;
+        if fStatusOk then
+        begin
+          fStatusOk := False;
+          if node.NodeName = _tag then
+          begin
+            // get the next tag
+            node := node.NextSibling;
+
+            // get the hash of the device
+            if node.NodeName = _device then
             begin
-              // get the next tag
-              NextTag;
+              node := node.NextSibling;
 
-              // get the hash of the device
-              if TagName = _device then
+              // get the hash of the devices PK
+              if (node.NodeName = _hash) and DoGetHash(node.NodeValue, lDeviceHash) then
               begin
-                NextTag;
 
-                // get the hash of the devices PK
-                if (TagName = _hash) and DoGetHash(TagValue, lDeviceHash) then
+                // check if it ours
+                if lDeviceHash =
+                  BinaryToBase64(
+                  TSecUtils.StringToHash(aDevsec.fPrivateKey.AsString,
+                  aDevsec.fCryptoProvider)) then
                 begin
 
-                  // check if it ours
-                  if lDeviceHash =
-                    BinaryToBase64(
-                    TSecUtils.StringToHash(aDevsec.fPrivateKey.AsString,
-                    aDevsec.fCryptoProvider)) then
+                  // get the permissions
+                  node := node.NextSibling;
+                  { TODO -oAFG -cnice to have : Check that the namespace is correct }
+                  if (node.NodeName = _access) and DoGetPermissions(node.NodeValue, s) then
                   begin
+                    fPermissions.Text := s;
+                    node := node.NextSibling;
 
-                    // get the permissions
-                    NextPeer;
-                    { TODO -oAFG -cnice to have : Check that the namespace is correct }
-                    if (TagName = _access) and DoGetPermissions(TagValue, s) then
+                    // get the may not delegate tag
+                    if node.NodeName = _maynotdelegate then
                     begin
-                      fPermissions.Text := s;
-                      NextPeer;
+                      node := node.NextSibling;
+                    end;
 
-                      // get the may not delegate tag
-                      if TagName = _maynotdelegate then
-                      begin
-                        NextPeer;
-                      end;
-
-                      // get the validity tags
-                      if (TagName = _valid) and DoGetValidity(TagValue,
-                        fValidityStart, fValidityEnd) then
-                      begin
-                        // if we got this far we have a valid entry
-                        fSubjectType := st_Key;
-                        fStatusOk    := True;
-                      end;
+                    // get the validity tags
+                    if (node.NodeName = _valid) and DoGetValidity(node.NodeValue,
+                      fValidityStart, fValidityEnd) then
+                    begin
+                      // if we got this far we have a valid entry
+                      fSubjectType := st_Key;
+                      fStatusOk    := True;
                     end;
                   end;
                 end;
@@ -5392,77 +5317,78 @@ begin
           end;
         end;
       end;
-    end
-    else
+    end;
+  end
+  else
+  begin
+
+    // if the first tag is define this is a member certificate
+    if node.NodeName = _define then
     begin
+      fIssuerType := st_Name;
 
-      // if the first tag is define this is a member certificate
-      if TagName = _define then
+      // get the next tag
+      node := node.NextSibling;
+
+      // get the group name tag
+      if (node.NodeName = _name) then
       begin
-        fIssuerType := st_Name;
+        node := node.NextSibling;
 
-        // get the next tag
-        NextTag;
-
-        // get the group name tag
-        if (TagName = _name) then
+        // get the hash of the issuer
+        if (node.NodeName = _hash) and DoGetHash(node.NodeValue, s) then
         begin
+          node := node.NextSibling;
 
-          // get the hash of the issuer
-          if (TagName = _hash) and DoGetHash(TagValue, s) then
+          // get the name
+          if node.NodeName = _text then
           begin
-            NextPeer;
+            fIssuerString := node.NodeValue;
 
-            // get the name
-            if TagName = _text then
+            // get the next tag
+            node := node.NextSibling;
+
+            // get the hash of the subject
+            if node.NodeName = _subject then
             begin
-              fIssuerString := TagValue;
-
-              // get the next tag
-              NextTag;
-
-              // get the hash of the subject
-              if TagName = _subject then
+              node := node.NextSibling;
+              if (node.NodeName = _hash) and DoGetHash(node.NodeValue, fSubjectString) then
               begin
-                NextTag;
-                if (TagName = _hash) and DoGetHash(TagValue, fSubjectString) then
+                node := node.NextSibling;
+
+                // get the validity tags
+                if (node.NodeName = _valid) and DoGetValidity(node.NodeValue,
+                  fValidityStart, fValidityEnd) then
                 begin
-                  NextPeer;
+                  // if we got this far we have a valid entry
+                  fSubjectType := st_Key;
+                  fStatusOk    := True;
+                end;
+              end
+              else
+              begin
 
-                  // get the validity tags
-                  if (TagName = _valid) and DoGetValidity(TagValue,
-                    fValidityStart, fValidityEnd) then
-                  begin
-                    // if we got this far we have a valid entry
-                    fSubjectType := st_Key;
-                    fStatusOk    := True;
-                  end;
-                end
-                else
+                // if name tag is present then process as a name entry, set the ACL
+                // entry type accordingly
+                if node.NodeName = _name then
                 begin
 
-                  // if name tag is present then process as a name entry, set the ACL
-                  // entry type accordingly
-                  if TagName = _name then
+                  // get the next tag
+                  node := node.NextSibling;
+
+                  // get the hash of the entry's principle
+                  if node.NodeName = _hash then
                   begin
-
-                    // get the next tag
-                    NextTag;
-
-                    // get the hash of the entry's principle
-                    if TagName = _hash then
+                    if DoGetHash(node.NodeValue, s) then
                     begin
-                      if DoGetHash(TagValue, s) then
-                      begin
-                        NextTag;
+                      node := node.NextSibling;
 
-                        // get the name
-                        if TagName = _text then
-                        begin
-                          fSubjectString := TagValue;
-                          fSubjectType   := st_Name;
-                          fStatusOk      := True;
-                        end;
+                      // get the name
+                      if node.NodeName = _text then
+                      begin
+                        fSubjectString := node.NodeValue;
+                        fSubjectType   := st_Name;
+                        fStatusOk      := True;
                       end;
                     end;
                   end;
@@ -5525,7 +5451,7 @@ begin
   end;
 end;
 
-procedure TUPnP_AuthList.SaveToXML(aBuffer: TUPnP_XMLStream);
+procedure TUPnP_AuthList.SaveToXML(aBuffer: IXMLNode);
 {
   Save the ACL to a data file / stream
   Status: FULLY TESTED
@@ -5716,7 +5642,7 @@ begin
   end;
 
   // pad plain text to an integral block size
-  AppendPadding(aPlainText, AES_BlockLength, fCryptoProvider);
+  AppendPadding(aPlainText);
 
   // determine the number of bytes we want to encrypt
   byteCount := length(aPlainText);
@@ -5809,13 +5735,14 @@ begin
 end;
 
 constructor TUPnP_SessionKey.CreateFromXML(aCryptoProvider: HCRYPTPROV;
-  aBuffer: TUPnP_XMLStream);
+  aBuffer: IXMLNode);
 {
   Create a session key from XML
   Status: FULLY TESTED
 }
 var
   keyString: string;
+  node: IXMLNode;
 const
   actname = 'CreateFromXML';
 begin
@@ -5823,39 +5750,37 @@ begin
   Create;
   fCryptoProvider := aCryptoProvider;
 
-  with aBuffer do
+  node := aBuffer;
+
+  // check if the tagname is to-device and set the field accordingly
+  if node.NodeName = _key_dir[toDevice] then
+  begin
+    fDirection := toDevice;
+  end
+  else
   begin
 
-    // check if the tagname is to-device and set the field accordingly
-    if TagName = _key_dir[toDevice] then
+    // check if the tagname is from-device and set the field accordingly
+    if node.NodeName = _key_dir[fromDevice] then
     begin
-      fDirection := toDevice;
+      fDirection := fromDevice;
     end
     else
     begin
+      // otherwise move on to the next tag before...
+      node := node.NextSibling;
 
-      // check if the tagname is from-device and set the field accordingly
-      if TagName = _key_dir[fromDevice] then
-      begin
-        fDirection := fromDevice;
-      end
-      else
-      begin
-        // otherwise move on to the next tag before...
-        NextTag;
-
-        // raising an error
-        RaiseException(ClassName, actname, 1);
-      end;
+      // raising an error
+      RaiseException(ClassName, actname, 1);
     end;
-
-    // convert the xml from from Base 64 to binary
-    keyString := Base64ToBinary(TagValue);
-    Move(keyString[1], fKey[0], sizeof(fKey));
-
-    // get then next tag
-    NextTag;
   end;
+
+  // convert the xml from from Base 64 to binary
+  keyString := Base64ToBinary(node.NodeValue);
+  Move(keyString[1], fKey[0], sizeof(fKey));
+
+  // get then next tag
+  node := node.NextSibling;
 end;
 
 constructor TUPnP_SessionKey.CreateFromStream(aCryptoProvider: HCRYPTPROV;
@@ -5987,15 +5912,14 @@ begin
   Move(anIV[1], fIV, min(length(anIV), sizeof(fIV)));
 end;
 
-procedure TUPnP_SessionKey.SaveToXML(aBuffer: TUPnP_XMLStream);
+procedure TUPnP_SessionKey.SaveToXML(aBuffer: IXMLNode);
 {
   Save a session key as XML
   Status: FULLY TESTED
 }
 begin
   // write the Key in base 64
-  aBuffer.WriteTagAndValue(_key_Dir[fDirection],
-    BinaryToBase64(KeyValue));
+  aBuffer.AddChild(_key_Dir[fDirection]).NodeValue := BinaryToBase64(KeyValue);
 end;
 
 procedure TUPnP_SessionKey.SaveToStream(aWriter: TWriter);
@@ -6021,12 +5945,15 @@ function TUPnP_RSA_Key.AsString: string;
   Status: FULLY TESTED
 }
 var
-  xBuffer: TUPnP_XMLStream;
+  xBuffer: IXMLDocument;
 begin
-  xBuffer := TUPnP_XMLStream.Create;
-  SaveToXML(xBuffer);
-  Result := xBuffer.AsText;
-  xBuffer.Free;
+  xBuffer := TXMLDocument.Create(nil);
+  try
+    SaveToXML(xBuffer.DocumentElement);
+    Result := xBuffer.XML.Text;
+  finally
+    xBuffer := nil;
+  end;
 end;
 
 destructor TUPnP_RSA_Key.Destroy;
@@ -6051,7 +5978,7 @@ begin
   raise EUPnP_KeyException.CreateFmt(fmt3, [ClassName, aMethod]);
 end;
 
-procedure TUPnP_RSA_Key.SaveToXML(aBuffer: TUPnP_XMLStream);
+procedure TUPnP_RSA_Key.SaveToXML(aBuffer: IXMLNode);
 {
   Initialise the Public Key data fields and save the public key as XML
   Status: FULLY TESTED
@@ -6067,14 +5994,12 @@ begin
   with aBuffer do
   begin
     // write the tag start
-    WriteTagStart(_RSAKeyValue);
-
-    // write the modulus and exponents
-    WriteTagAndValue(_Modulus, ModulusB64);
-    WriteTagAndValue(_Exponent, PublicExponentB64);
-
-    // write the tag end
-    WriteTagEnd(_RSAKeyValue);
+    with AddChild(_RSAKeyValue) do
+    begin
+      // write the modulus and exponents
+      AddChild(_Modulus).NodeValue := ModulusB64;
+      AddChild(_Exponent).NodeValue := PublicExponentB64;
+    end;
   end;
 end;
 
@@ -6178,7 +6103,7 @@ begin
   FGIntToBase256String(n, s);
 
   // digest the plaintext
-  t := StringToHash(aPlainText, fDevSec.fCryptoProvider);
+  t := TSecUtils.StringToHash(aPlainText, fDevSec.fCryptoProvider);
 
   // calculate the amount of padding needed
   l      := length(s) - length(prefix) - length(t) - 2;
@@ -6255,7 +6180,7 @@ end;
 {$endif}
 
 constructor TUPnP_RSA_Key.CreateFromXML(aDevSec: TUPnP_DeviceSecurity;
-  aBuffer: TUPnP_XMLStream);
+  aBuffer: IXMLNode);
 {
   Set up the public key from XML
   Status: FULLY TESTED
@@ -6351,23 +6276,22 @@ begin
     // loop twice to get modulus and exponent tags
     for i := 0 to 1 do
     begin
-
-      // get the next tag
-      NextTag;
-
-      // get the modulus
-      if TagName = _Modulus then
+      with NextSibling do
       begin
-        // truncate the #0 preceding the MSB (if any)
-        Base256StringToFGInt(StripZeroByte(Base64ToBinary(TagValue)), n);
-      end
-      else
-      begin
-        // get the exponent
-        if TagName = _Exponent then
+        // get the modulus
+        if NodeName = _Modulus then
         begin
           // truncate the #0 preceding the MSB (if any)
-          Base256StringToFGInt(StripZeroByte(Base64ToBinary(TagValue)), e);
+          Base256StringToFGInt(StripZeroByte(Base64ToBinary(NodeValue)), n);
+        end
+        else
+        begin
+          // get the exponent
+          if NodeName = _Exponent then
+          begin
+            // truncate the #0 preceding the MSB (if any)
+            Base256StringToFGInt(StripZeroByte(Base64ToBinary(NodeValue)), e);
+          end;
         end;
       end;
     end;
@@ -7046,7 +6970,7 @@ begin
 end;
 
 constructor TUPnP_Session.CreateFromXML(aDevSecService: TUPnP_DeviceSecurity;
-  aBuffer: TUPnP_XMLStream);
+  aBuffer: IXMLNode);
 {
   Set the session data from an XML stream
   Status: FULLY TESTED
@@ -7054,7 +6978,7 @@ constructor TUPnP_Session.CreateFromXML(aDevSecService: TUPnP_DeviceSecurity;
 var
   nextKey: integer;
 
-  procedure GetTwoKeys(aKeyType: TUPnP_KeyType);
+  procedure GetTwoKeys(aKeyType: TUPnP_KeyType; node: IXMLNode);
   {
     Get two keys of the given type from xml
     Status: FULLY TESTED
@@ -7063,151 +6987,143 @@ var
     j: integer;
     s: TUPnP_SessionKey;
   begin
-    with aBuffer do
+    node := node.NextSibling;
+    // loop to get two keys
+    for j := 0 to 1 do
     begin
-      // get the next tag
-      NextTag;
 
-      // loop to get two keys
-      for j := 0 to 1 do
+      // check the algorithm
+      if node.NodeName = _AlgorithmA then
       begin
 
-        // check the algorithm
-        if Tagname = _AlgorithmA then
-        begin
-
-          // if it is correct then jump over it
-          case aKeyType of
-            confidentiality:
+        // if it is correct then jump over it
+        case aKeyType of
+          confidentiality:
+          begin
+            if node.NodeValue = _alg_id[alg_AES_128] then
             begin
-              if TagValue = _alg_id[alg_AES_128] then
-              begin
-                NextTag;
-              end
-              else
-              begin
-                exit;
-              end;
+              node := node.NextSibling;
+            end
+            else
+            begin
+              exit;
             end;
+          end;
 
-            signing:
+          signing:
+          begin
+            if node.NodeValue = _alg_id[alg_SHA1_HMAC] then
             begin
-              if TagValue = _alg_id[alg_SHA1_HMAC] then
-              begin
-                NextTag;
-              end
-              else
-              begin
-                exit;
-              end;
+              node := node.NextSibling;
+            end
+            else
+            begin
+              exit;
             end;
           end;
         end;
+      end;
 
-        // try to create a key
-        s := TUPnP_SessionKey.CreateFromXML(aDevSecService.fCryptoProvider, aBuffer);
+      // try to create a key
+      s := TUPnP_SessionKey.CreateFromXML(aDevSecService.fCryptoProvider, aBuffer);
 
-        // creation failed => exit
-        if s = nil then
-        begin
-          exit;
-        end
-        else
-        begin
+      // creation failed => exit
+      if s = nil then
+      begin
+        exit;
+      end
+      else
+      begin
 
-          // if the key is good then assign it under the index
-          fKey[nextKey] := s;
-          fKey[nextKey].fKeyType := aKeyType;
+        // if the key is good then assign it under the index
+        fKey[nextKey] := s;
+        fKey[nextKey].fKeyType := aKeyType;
 
-          // and increment the index
-          Inc(nextKey);
-        end;
+        // and increment the index
+        Inc(nextKey);
       end;
     end;
   end;
 
 var
   i: integer;
+  node: IXMLNode;
 const
   actname = 'CreateFromXML';
 begin
   // call inherited constructor
   Create;
 
-  with aBuffer do
-
-    // look for a sessionkeys tag
+  node := aBuffer;
+  if node.NodeName = _SessionKeys then
   begin
-    if TagName = _SessionKeys then
+
+    // get the next tag
+    node := node.NextSibling;
+
+    // preset the index
+    nextKey := 0;
+
+    // loop to get two pairs of keys
+    for i := 0 to 1 do
     begin
 
-      // get the next tag
-      NextTag;
-
-      // preset the index
-      nextKey := 0;
-
-      // loop to get two pairs of keys
-      for i := 0 to 1 do
+      // get two confidentiality keys
+      if node.NodeName = _key_type[confidentiality] then
       begin
-
-        // get two confidentiality keys
-        if TagName = _key_type[confidentiality] then
+        GetTwoKeys(confidentiality, node);
+      end
+      else
+      begin
+        // get two signing keys
+        if node.NodeName = _key_type[signing] then
         begin
-          GetTwoKeys(confidentiality);
-        end
-        else
-        begin
-          // get two signing keys
-          if TagName = _key_type[signing] then
-          begin
-            GetTwoKeys(signing);
-          end;
+          GetTwoKeys(signing, node);
         end;
       end;
-
-      // we should have 4 keys assigned
-      if nextKey < 4 then
-      begin
-
-        // loop through and check if each key is assigned; if so then free it
-        for i := 0 to 3 do
-        begin
-          if Assigned(fKey[i]) then
-          begin
-            fKey[i].Free;
-          end;
-        end;
-
-        // and raise an exception
-        RaiseException(ClassName, actname, 1);
-      end;
-
-      // set the key ID to a random value
-      fDeviceKeyID := Random(maxint);
-
-      // initialise the sequence number to zero
-      fDeviceSequenceNumber := 0;
-      fCPSequenceNumber     := 0;
-
-      // create a random sequence base
-      fSequenceBase := aDevSecService.fRandomString;
-
-      // set a default CPKeyID
-      fCPKeyID := 0;
-
-      // and preset the owners hash to ''
-      fOwnerPKHashB64 := '';
-    end
-    else
-    begin
-      // bad xml, so raise an exception
-      RaiseException(ClassName, actname, 2);
     end;
+
+    // we should have 4 keys assigned
+    if nextKey < 4 then
+    begin
+
+      // loop through and check if each key is assigned; if so then free it
+      for i := 0 to 3 do
+      begin
+        if Assigned(fKey[i]) then
+        begin
+          fKey[i].Free;
+        end;
+      end;
+
+      // and raise an exception
+      RaiseException(ClassName, actname, 1);
+    end;
+
+    // set the key ID to a random value
+    fDeviceKeyID := Random(maxint);
+
+    // initialise the sequence number to zero
+    fDeviceSequenceNumber := 0;
+    fCPSequenceNumber     := 0;
+
+    // create a random sequence base
+    fSequenceBase := aDevSecService.fRandomString;
+
+    // set a default CPKeyID
+    fCPKeyID := 0;
+
+    // and preset the owners hash to ''
+    fOwnerPKHashB64 := '';
+  end
+  else
+  begin
+    // bad xml, so raise an exception
+    RaiseException(ClassName, actname, 2);
   end;
 end;
 
-procedure TUPnP_Session.SaveToXML(aBuffer: TUPnP_XMLStream);
+procedure TUPnP_Session.SaveToXML(aBuffer: IXMLNode);
 {
   Save a session to xml
   Status: FULLY TESTED
@@ -7221,46 +7137,42 @@ begin
   begin
 
     // write the session keys prolog
-    WriteTagStart(_SessionKeys);
-
-    // save two key types
-    for x := low(TUPnP_KeyType) to high(TUPnP_KeyType) do
+    with AddChild(_SessionKeys) do
     begin
-
-      // save the key type prolog
-      WriteTagStart(_key_type[x]);
-
-      // save the algorithm
-      case x of
-        confidentiality:
-        begin
-          WriteTagAndValue(_algorithmA, _alg_id[alg_AES_128]);
-        end;
-        signing:
-        begin
-          WriteTagAndValue(_algorithmA, _alg_id[alg_SHA1_HMAC]);
-        end;
-      end;
-
-      // two key directions per type
-      for y := low(TUPnP_KeyDirection) to high(TUPnP_KeyDirection) do
+      // save two key types
+      for x := low(TUPnP_KeyType) to high(TUPnP_KeyType) do
       begin
-        // use a local variable for speed
-        s := Key[x, y];
 
-        // save the key
-        if s <> nil then
+        // save the key type prolog
+        with AddChild(_key_type[x]) do
         begin
-          s.SaveToXML(aBuffer);
+          // save the algorithm
+          case x of
+            confidentiality:
+            begin
+              AddChild(_algorithmA).NodeValue := _alg_id[alg_AES_128];
+            end;
+            signing:
+            begin
+              AddChild(_algorithmA).NodeValue := _alg_id[alg_SHA1_HMAC];
+            end;
+          end;
+
+          // two key directions per type
+          for y := low(TUPnP_KeyDirection) to high(TUPnP_KeyDirection) do
+          begin
+            // use a local variable for speed
+            s := Key[x, y];
+
+            // save the key
+            if s <> nil then
+            begin
+              s.SaveToXML(aBuffer);
+            end;
+          end;
         end;
       end;
-
-      // write the key type epilog
-      WriteTagEnd(_key_type[x]);
     end;
-
-    // write the session keys epilog
-    WriteTagEnd(_SessionKeys);
   end;
 end;
 
@@ -7614,7 +7526,6 @@ var
 const
   actName = 'BinaryToBase64';
 {$else}
-var
   shiftRegister: cardinal;
   done: boolean;
   i, trailingNulCount, srcPtr, dstPtr, d, sourceLength: integer;
@@ -8011,11 +7922,12 @@ constructor TUPnP_DigitalSignature.Create(aDevSec: TUPnP_DeviceSecurity;
   Status: FULLY TESTED
 }
 var
-  lSigIOBuffer, lKeyIOBuffer: TUPnP_XMLStream;
+  lSigIOBuffer, lKeyIOBuffer: IXMLDocument;
   lDigest, lURI, lHMAC, lSignedInfo, lSignature: string;
   lPubKey: TUPnP_RSA_Key;
   i: integer;
   lReferences: TStringList;
+  node, nodetemp: IXMLNode;
 begin
   inherited Create;
   aResult     := auth_GeneralError;
@@ -8023,168 +7935,156 @@ begin
 
   lReferences := TStringList.Create;
   try
-    lSigIOBuffer := TUPnP_XMLStream.Create;
+    lSigIOBuffer := TXMLDocument.Create(nil);
     try
-      lSigIOBuffer.WriteValues([aSignatureNode]);
+      lSigIOBuffer.XML.Add(aSignatureNode);
+      lSigIOBuffer.Active := true;
 
-      with lSigIOBuffer do
+      node := lSigIOBuffer.DocumentElement.ChildNodes.First;
+      // scan the whole file
+      while assigned(node) do
       begin
+        // get the Digest results
+        if node.NodeName = _dsReference then
+        begin
+          // if it has an URI attribute then get it
+          lURI := node.Attributes[_URI];
 
-        // reset the parser
-        ResetParser;
+          // and strip the preceding #
+          lURI := Copy(lURI, 2, length(lURI) - 1);
 
-        // scan the whole file
-        while not EOF do
+          // read a maximumun of four tags
+          for i := 0 to 3 do
+          begin
+
+            // get the next tag
+            nodetemp := node.ChildNodes.FindNode(_dsDigestValue);
+
+            // look for a Digest Value entry
+            if assigned(nodetemp) then
+            begin
+              // add it to the parameter list
+              lReferences.Add(Format(_equals, [lURI, nodetemp.NodeValue]));
+              break;
+            end;
+          end;
+
+          continue;
+        end;
+
+        // get the SignedInfo
+        if node.NodeName = _dsSignedInfo then
+        begin
+          lSignedInfo := node.XML;
+          continue;
+        end;
+
+        // get the Signature
+        if node.NodeName = _dsSignatureValue then
+        begin
+          lSignature := node.NodeValue;
+          continue;
+        end;
+
+        // get the (session) KeyName
+        if node.NodeName = _KeyName then
         begin
 
-          // get the next tag
-          NextTag;
+          // add it to the DSig parameter list
+          aDSigParamList.Add(Format(_equals, [node.NodeName, node.NodeValue]));
 
-          // get the Digest results
-          if TagName = _dsReference then
+          // look up the respective session
+          aSessionKey := aSessionList.Session[StrToIntDef(node.NodeValue, -1)];
+          if aSessionKey = nil then
           begin
-            // if it has an URI attribute then get it
-            lURI := TagAttributeValue[_URI];
+            aResult := auth_UnknownSession;
+          end
+          else
+          begin
+            // if we have a good session key, use it to create an HMAC signature on the
+            // SignedInfo parameter
+            lHMac := BinaryToBase64(TSecUtils.CreateHMACDigest(
+              aSessionKey.Key[signing, aSigDirection].KeyValue, lSignedInfo,
+              aDevSec.fCryptoProvider));
 
-            // and strip the preceding #
-            lURI := Copy(lURI, 2, length(lURI) - 1);
-
-            // read a maximumun of four tags
-            for i := 0 to 3 do
+            if lHMac = lSignature then
             begin
-
-              // get the next tag
-              NextTag;
-
-              // look for a Digest Value entry
-              if TagName = _dsDigestValue then
-              begin
-
-                // add it to the parameter list
-                lReferences.Add(Format(_equals, [lURI, TagValue]));
-                break;
-              end;
-            end;
-
-            continue;
-          end;
-
-          // get the SignedInfo
-          if TagName = _dsSignedInfo then
-          begin
-            lSignedInfo := FullTagValue;
-            continue;
-          end;
-
-          // get the Signature
-          if TagName = _dsSignatureValue then
-          begin
-            lSignature := TagValue;
-            continue;
-          end;
-
-          // get the (session) KeyName
-          if TagName = _KeyName then
-          begin
-
-            // add it to the DSig parameter list
-            aDSigParamList.Add(Format(_equals, [TagName, TagValue]));
-
-            // look up the respective session
-            aSessionKey := aSessionList.Session[StrToIntDef(TagValue, -1)];
-            if aSessionKey = nil then
-            begin
-              aResult := auth_UnknownSession;
+              aResult := auth_Accepted;
             end
             else
             begin
-              // if we have a good session key, use it to create an HMAC signature on the
-              // SignedInfo parameter
-              lHMac := BinaryToBase64(TSecUtils.CreateHMACDigest(
-                aSessionKey.Key[signing, aSigDirection].KeyValue, lSignedInfo,
-                aDevSec.fCryptoProvider));
+              aResult := auth_SignatureNotVerified;
+            end;
+          end;
 
-              if lHMac = lSignature then
+          continue;
+        end;
+
+        // if we have information about a public key, use it to create a public key object
+        if node.NodeName = _RSAKeyValue then
+        begin
+          // add the key value to the parameter list
+          aDSigParamList.Add(Format(_equals, [node.NodeName, node.XML]));
+
+          // add the hash of the key value to the parameter list
+          aDSigParamList.Add(Format(_equals,
+            [_KeyHash, BinaryToBase64(
+            TSecUtils.StringToHash(node.XML,
+            aDevSec.fCryptoProvider))]));
+
+          // create a buffer
+          lKeyIOBuffer := TXMLDocument.Create(nil);
+          try
+
+            // write the key value xml to the buffer
+            lKeyIOBuffer.XML.Add(node.XML);
+            lKeyIOBuffer.Active := true;
+
+            // try to create a public key from the xml
+            try
+              lPubKey := TUPnP_RSA_Key.CreateFromXML(aDevSec, lKeyIOBuffer.DocumentElement);
+
+              // check if the key is bad
+              if lPubKey = nil then
               begin
-                aResult := auth_Accepted;
+                aResult := auth_Bad_PublicKey;
               end
               else
               begin
-                aResult := auth_SignatureNotVerified;
-              end;
-            end;
+                try
 
-            continue;
-          end;
-
-          // if we have information about a public key, use it to create a public key object
-          if TagName = _RSAKeyValue then
-          begin
-            // add the key value to the parameter list
-            aDSigParamList.Add(Format(_equals, [TagName, FullTagValue]));
-
-            // add the hash of the key value to the parameter list
-            aDSigParamList.Add(Format(_equals,
-              [_KeyHash, BinaryToBase64(
-              TSecUtils.StringToHash(FullTagValue,
-              aDevSec.fCryptoProvider))]));
-
-            // create a buffer
-            lKeyIOBuffer := TUPnP_XMLStream.Create;
-            try
-
-              // write the key value xml to the buffer
-              lKeyIOBuffer.WriteValues([FullTagValue]);
-
-              // reset the parser
-              lKeyIOBuffer.ResetParser;
-
-              // try to create a public key from the xml
-              try
-                lPubKey := TUPnP_RSA_Key.CreateFromXML(aDevSec, lKeyIOBuffer);
-
-                // check if the key is bad
-                if lPubKey = nil then
-                begin
-                  aResult := auth_Bad_PublicKey;
-                end
-                else
-                begin
-                  try
-
-                    // we have a good RSA key, so use it to verify the signature on <SignedInfo>
-                    // against <SignatureValue>
-                    if lPubKey.Verify(lSignedInfo,
-                      Base64ToBinary(lSignature)) then
-                    begin
-                      aResult := auth_Accepted;
-                    end
-                    else
-                    begin
-                      aResult := auth_SignatureNotVerified;
-                    end;
-
-                  finally
-                    lPubKey.Free;
+                  // we have a good RSA key, so use it to verify the signature on <SignedInfo>
+                  // against <SignatureValue>
+                  if lPubKey.Verify(lSignedInfo,
+                    Base64ToBinary(lSignature)) then
+                  begin
+                    aResult := auth_Accepted;
+                  end
+                  else
+                  begin
+                    aResult := auth_SignatureNotVerified;
                   end;
-                end;
 
-              except
-                on Exception do
-                  aResult := auth_SignatureNotVerified;
+                finally
+                  lPubKey.Free;
+                end;
               end;
 
-            finally
-              lKeyIOBuffer.Free;
+            except
+              on Exception do
+                aResult := auth_SignatureNotVerified;
             end;
 
-            continue;
+          finally
+            lKeyIOBuffer := nil;
           end;
+
+          continue;
         end;
       end;
 
     finally
-      lSigIOBuffer.Free;
+      lSigIOBuffer := nil;
     end;
 
     // if the signature has not already validated, there is no need to check the digests

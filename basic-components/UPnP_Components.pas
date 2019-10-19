@@ -125,6 +125,8 @@
     September 18, 2005
       - Added XML encoding & decoding to state variable payload transfers
       - Release v1.5.04
+    October 19, 2019
+      - MSXML needs to initialize COM in every thread! That's ugly! https://stackoverflow.com/questions/20478739/xml-msxml-not-installed
 }
 
 unit UPnP_Components;

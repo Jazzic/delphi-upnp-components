@@ -16,7 +16,7 @@ package UPnP_Delphi_Components;
 {$OPTIMIZATION OFF}
 {$OVERFLOWCHECKS OFF}
 {$RANGECHECKS OFF}
-{$REFERENCEINFO ON}
+{$DEFINITIONINFO ON}
 {$SAFEDIVIDE OFF}
 {$STACKFRAMES ON}
 {$TYPEDADDRESS OFF}
@@ -35,7 +35,8 @@ requires
   vclimg,
   IndyCore,
   IndySystem,
-  IndyProtocols;
+  IndyProtocols,
+  xmlrtl;
 
 contains
   UPnP_Components in 'UPnP_Components.pas',
@@ -43,10 +44,6 @@ contains
   UPnP_IndyExtensions in 'UPnP_IndyExtensions.pas',
   UPnP_Strings in 'UPnP_Strings.pas',
   UPnP_XmlStreamer in 'UPnP_XmlStreamer.pas',
-//  GIFImage in 'C:\Downloaded Components\Graphics Extensions\GifImage\GIFImage.pas',
-//  pngimage in 'C:\Downloaded Components\Graphics Extensions\PngImage\pngimage.pas',
-//  pngzlib in 'C:\Downloaded Components\Graphics Extensions\PngImage\pngzlib.pas',
-//  pnglang in 'C:\Downloaded Components\Graphics Extensions\PngImage\pnglang.pas',
   UPnP_GraphicsExtensions in 'UPnP_GraphicsExtensions.pas',
   UPnP_TreeView in 'UPnP_TreeView.pas';
 

@@ -1,6 +1,8 @@
 package UPnP_Delphi_Security_Components;
 
 {$R *.res}
+{$R *.otares}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
 {$ALIGN 8}
 {$ASSERTIONS ON}
 {$BOOLEVAL OFF}
@@ -11,27 +13,28 @@ package UPnP_Delphi_Security_Components;
 {$LOCALSYMBOLS ON}
 {$LONGSTRINGS ON}
 {$OPENSTRINGS ON}
-{$OPTIMIZATION ON}
+{$OPTIMIZATION OFF}
 {$OVERFLOWCHECKS OFF}
 {$RANGECHECKS OFF}
 {$REFERENCEINFO ON}
 {$SAFEDIVIDE OFF}
-{$STACKFRAMES OFF}
+{$STACKFRAMES ON}
 {$TYPEDADDRESS OFF}
 {$VARSTRINGCHECKS ON}
 {$WRITEABLECONST OFF}
 {$MINENUMSIZE 1}
 {$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
 {$DESCRIPTION 'UPnP Security Components'}
 {$IMPLICITBUILD OFF}
 
 requires
   rtl,
   vcl,
-  IndyProtocols70,
-  IndyCore70,
-  IndySystem70,
-  vcljpg,
+  IndyProtocols,
+  IndyCore,
+  IndySystem,
   UPnP_Delphi_Components;
 
 contains
